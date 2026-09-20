@@ -120,7 +120,17 @@ a password; use a dummy environment value for offline checks. SQL rendering does
 not verify live migration execution. The migration tests check generated SQL
 against model metadata without a database.
 
-## First source: Find a Tender
+## Supported sources
+
+| Source | Ingestion |
+| --- | --- |
+| Find a Tender | Public HTML listing, UK4 notices |
+| Contracts Finder | Official public OCDS JSON search API, active tender releases |
+
+Both source-specific parsers produce `ScrapedTender` records for the same
+transactional ingestion service and PostgreSQL models.
+
+### Find a Tender
 
 The adapter reads the first public [Find a Tender listing page](https://www.find-tender.service.gov.uk/Search/Results)
 and selects **UK4: Tender notice** records. It uses HTTPX and Beautiful Soup;
@@ -133,13 +143,13 @@ After configuring PostgreSQL and applying migrations, run from the repository ro
 with `PYTHONPATH=backend` set as described above:
 
 ```text
-python -m app.ingest
+python -m app.ingest --source find-a-tender
 ```
 
 To fetch and validate the real listing without database configuration or writes:
 
 ```text
-python -m app.ingest --fetch-only
+python -m app.ingest --source find-a-tender --fetch-only
 ```
 
 Collected fields are the notice ID, title, buyer/organization, description excerpt,
@@ -163,9 +173,11 @@ reactivated. Existing records keep `first_seen_at` and receive a new `last_seen_
 provided mutable values are updated, while missing optional values preserve known
 data. Content hashes remain unset because direct field comparison is sufficient.
 
-The summary reports actual page cards discovered, records created, records updated
-(including seen-again records), malformed/conflicting records failed, and unsupported
-notice types skipped. Repeated cards within a page count as separate observations.
+For either source, the summary reports records discovered, created, changed,
+unchanged, failed, and skipped. `changed` means at least one provided normalized
+source field changed; `unchanged` means the record was merely seen again. Both
+advance `last_seen_at`, which does not itself count as a content change. Missing
+optional values preserve known data. Repeated records count as separate observations.
 Partial failures return exit code 1 after committing valid records. Source-level
 fetch/parse failures and database failures also return 1, without success counts.
 Operational logs go to stderr. `--fetch-only` reports valid records, not insert counts.
@@ -178,8 +190,54 @@ date labels may change. Parser tests use saved HTML and mocked HTTP; ingestion
 tests use in-memory SQLite with unchanged production models. They verify business
 behavior, not PostgreSQL row locking, concurrency, or live migration execution.
 
+### Contracts Finder
+
+The adapter uses the [documented OCDS search API](https://www.contractsfinder.service.gov.uk/apidocumentation/Notices/1/GET-Published-Notice-OCDS-Search):
+
+```text
+GET https://www.contractsfinder.service.gov.uk/Published/Notices/OCDS/Search?stages=tender&limit=20
+python -m app.ingest --source contracts-finder
+python -m app.ingest --source contracts-finder --fetch-only
+```
+
+This public endpoint was verified without login or an API key. One request fetches
+at most 20 releases; cursor/next links are not followed. There are no record, detail,
+or document requests. HTTPX uses a 30-second timeout per network operation and no
+retries or redirects. The API documents a five-minute pause after HTTP 403;
+the command stops on that response rather than retrying.
+
+Mapping uses fields observed in the public response:
+
+| Normalized field | OCDS field |
+| --- | --- |
+| `external_id` | Notice UUID from the official HTML `tender.documents[].url` |
+| `source_url` | That same URL, for `documentType=tenderNotice`, `format=text/html` |
+| `title`, `description` | `tender.title`, `tender.description` |
+| `organization` | `buyer.name`; otherwise matching buyer party or sorted buyer-role names |
+| `category` | `tender.mainProcurementCategory` |
+| `location` | Distinct sorted `tender.items[].deliveryAddresses[].countryName` values |
+| `published_at` | `tender.datePublished`, not the release/package modification date |
+| `deadline` | `tender.tenderPeriod.endDate` |
+
+The notice UUID identifies the published notice across release versions. The API's
+`ocid` identifies a procurement process; release `id` includes a version suffix,
+and `tender.id` is a buyer reference. None replaces notice identity in this adapter.
+Each source retains its own identity namespace.
+
+Only active releases tagged `tender`, `tenderUpdate`, or `tenderAmendment` are ingested;
+other stages and inactive tenders are skipped. This is a bounded recent batch, not
+complete coverage or a guarantee of an unexpired deadline. Countries are delivery
+locations, not buyer addresses. Missing optional fields remain absent; malformed
+required data or datetimes reject that record. ISO datetimes must carry an offset
+and are converted to UTC. An invalid package or wholly malformed batch fails loudly.
+
+The JSON fixture contains two real public releases captured on 2026-09-20, with
+contact details, buyer addresses, attachment links, and pagination removed. Its
+original OGL license field is retained. Tests never require either live source.
+Omitting `--source` keeps the previous Find a Tender default; unknown names are errors.
+
 ## Current limitations
 
-Only the Find a Tender listing adapter is integrated. There are no CRUD endpoints,
+Only Find a Tender and Contracts Finder are integrated. There are no CRUD endpoints,
 AI/RAG features, workers, frontend, or tender matching. No documents are downloaded,
 and content hashing is not implemented.

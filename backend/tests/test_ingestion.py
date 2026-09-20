@@ -4,10 +4,11 @@ from unittest.mock import patch
 
 from sqlalchemy import create_engine, event, func, select, text
 from sqlalchemy.exc import IntegrityError
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, attributes
 
 from app.models import Base, Source, Tender
 from app.schemas.source import SourceCreate
+from app.scrapers import contracts_finder, find_tender
 from app.scrapers.records import ParsedListing, ScrapedTender
 from app.services.ingestion import InactiveSourceError, ingest_tenders
 
@@ -22,6 +23,21 @@ class IngestionTests(unittest.TestCase):
 
         Base.metadata.create_all(self.engine)
         self.addCleanup(self.engine.dispose)
+
+        def restore_test_offsets(session, instance):
+            # SQLite discards offsets. Restore UTC in tests, not production comparison.
+            if session.bind is self.engine and isinstance(instance, Tender):
+                for name in ("published_at", "deadline"):
+                    value = getattr(instance, name)
+                    if value is not None and value.tzinfo is None:
+                        attributes.set_committed_value(
+                            instance, name, value.replace(tzinfo=UTC)
+                        )
+
+        event.listen(Session, "loaded_as_persistent", restore_test_offsets)
+        self.addCleanup(
+            event.remove, Session, "loaded_as_persistent", restore_test_offsets
+        )
         self.source = SourceCreate(
             name="Test source", slug="test-source", base_url="https://example.org"
         )
@@ -48,13 +64,14 @@ class IngestionTests(unittest.TestCase):
             (
                 first.discovered,
                 first.created,
-                first.updated,
+                first.changed,
                 first.failed,
                 first.skipped,
             ),
             (4, 1, 0, 1, 2),
         )
-        self.assertEqual((second.created, second.updated, second.failed), (0, 1, 1))
+        self.assertEqual((second.created, second.unchanged, second.failed), (0, 1, 1))
+        self.assertEqual((first.changed, first.unchanged, second.changed), (0, 0, 0))
         with Session(self.engine) as session:
             self.assertEqual(
                 session.scalar(select(func.count()).select_from(Source)), 1
@@ -69,6 +86,16 @@ class IngestionTests(unittest.TestCase):
             self.assertIsNone(tender.content_hash)
             source = session.scalars(select(Source)).one()
             self.assertEqual(source.last_scraped_at.replace(tzinfo=UTC), second_time)
+        third_time = datetime(2026, 9, 20, 10, tzinfo=UTC)
+        changed = self.record.model_copy(update={"title": "Revised equipment supply"})
+        with patch("app.services.ingestion.datetime") as clock:
+            clock.now.return_value = third_time
+            third = ingest_tenders(self.engine, self.source, ParsedListing([changed]))
+        self.assertEqual((third.created, third.changed, third.unchanged), (0, 1, 0))
+        with Session(self.engine) as session:
+            tender = session.scalars(select(Tender)).one()
+            self.assertEqual(tender.first_seen_at.replace(tzinfo=UTC), first_time)
+            self.assertEqual(tender.last_seen_at.replace(tzinfo=UTC), third_time)
 
     def test_external_id_tracks_url_and_content_changes(self) -> None:
         ingest_tenders(self.engine, self.source, ParsedListing([self.record]))
@@ -88,7 +115,7 @@ class IngestionTests(unittest.TestCase):
             }
         )
         result = ingest_tenders(self.engine, self.source, ParsedListing([changed]))
-        self.assertEqual((result.created, result.updated), (0, 1))
+        self.assertEqual((result.created, result.changed), (0, 1))
         with Session(self.engine) as session:
             tender = session.scalars(select(Tender)).one()
             self.assertEqual(
@@ -109,7 +136,7 @@ class IngestionTests(unittest.TestCase):
             title=self.record.title, source_url=self.record.source_url
         )
         third = ingest_tenders(self.engine, self.source, ParsedListing([sparse]))
-        self.assertEqual((first.created, second.updated, third.updated), (1, 1, 1))
+        self.assertEqual((first.created, second.changed, third.unchanged), (1, 1, 1))
         with Session(self.engine) as session:
             tender = session.scalars(select(Tender)).one()
             self.assertEqual(tender.external_id, self.record.external_id)
@@ -117,20 +144,60 @@ class IngestionTests(unittest.TestCase):
             self.assertIsNotNone(tender.deadline)
 
     def test_identity_is_scoped_to_source(self) -> None:
-        another_source = SourceCreate(
-            name="Other test source",
-            slug="other-source",
-            base_url="https://example.org",
-        )
-        ingest_tenders(self.engine, self.source, ParsedListing([self.record]))
+        ingest_tenders(self.engine, find_tender.SOURCE, ParsedListing([self.record]))
         result = ingest_tenders(
-            self.engine, another_source, ParsedListing([self.record])
+            self.engine, contracts_finder.SOURCE, ParsedListing([self.record])
         )
         self.assertEqual(result.created, 1)
+        again = ingest_tenders(
+            self.engine, find_tender.SOURCE, ParsedListing([self.record])
+        )
+        self.assertEqual((again.created, again.changed, again.unchanged), (0, 0, 1))
         with Session(self.engine) as session:
+            self.assertEqual(
+                set(session.scalars(select(Source.slug))),
+                {"find-a-tender", "contracts-finder"},
+            )
             self.assertEqual(
                 session.scalar(select(func.count()).select_from(Tender)), 2
             )
+
+    def test_each_source_visible_field_counts_as_changed(self) -> None:
+        values = {
+            "external_id": "promoted-id",
+            "title": "Changed title",
+            "organization": "Changed buyer",
+            "description": "New description",
+            "source_url": "https://example.org/notices/moved",
+            "category": "goods",
+            "location": "United Kingdom",
+            "published_at": datetime(2026, 9, 1, tzinfo=UTC),
+            "deadline": datetime(2026, 10, 3, tzinfo=UTC),
+        }
+        for name, value in values.items():
+            with self.subTest(field=name):
+                source = self.source.model_copy(update={"slug": name.replace("_", "-")})
+                original = (
+                    self.record.model_copy(update={"external_id": None})
+                    if name == "external_id"
+                    else self.record
+                )
+                ingest_tenders(self.engine, source, ParsedListing([original]))
+                changed = ScrapedTender.model_validate(
+                    original.model_dump() | {name: value}
+                )
+                result = ingest_tenders(self.engine, source, ParsedListing([changed]))
+                self.assertEqual(
+                    (result.created, result.changed, result.unchanged), (0, 1, 0)
+                )
+
+    def test_equivalent_datetime_offsets_are_unchanged(self) -> None:
+        ingest_tenders(self.engine, self.source, ParsedListing([self.record]))
+        same = ScrapedTender.model_validate(
+            self.record.model_dump() | {"deadline": "2026-10-01T17:00:00+05:00"}
+        )
+        result = ingest_tenders(self.engine, self.source, ParsedListing([same]))
+        self.assertEqual((result.created, result.changed, result.unchanged), (0, 0, 1))
 
     def test_conflicting_keys_are_isolated_without_merging_history(self) -> None:
         other = ScrapedTender(
@@ -149,7 +216,7 @@ class IngestionTests(unittest.TestCase):
             result = ingest_tenders(
                 self.engine, self.source, ParsedListing([conflicted, valid])
             )
-        self.assertEqual((result.created, result.updated, result.failed), (1, 0, 1))
+        self.assertEqual((result.created, result.changed, result.failed), (1, 0, 1))
         with Session(self.engine) as session:
             tenders = session.scalars(select(Tender).order_by(Tender.id)).all()
             self.assertEqual(len(tenders), 3)
@@ -163,13 +230,13 @@ class IngestionTests(unittest.TestCase):
             result = ingest_tenders(
                 self.engine, self.source, ParsedListing([conflicted])
             )
-        self.assertEqual((result.created, result.updated, result.failed), (0, 0, 1))
+        self.assertEqual((result.created, result.changed, result.failed), (0, 0, 1))
 
     def test_repeated_record_in_one_batch_cannot_create_duplicates(self) -> None:
         result = ingest_tenders(
             self.engine, self.source, ParsedListing([self.record, self.record])
         )
-        self.assertEqual((result.created, result.updated), (1, 1))
+        self.assertEqual((result.created, result.unchanged), (1, 1))
         with Session(self.engine) as session:
             self.assertEqual(
                 session.scalar(select(func.count()).select_from(Tender)), 1

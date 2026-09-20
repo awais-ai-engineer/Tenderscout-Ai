@@ -1,0 +1,187 @@
+{
+  "uri": "https://www.contractsfinder.service.gov.uk/Published/Notices/OCDS/Search?stages=tender&limit=2&publishedTo=2026-09-20T06:43:06+01:00",
+  "version": "1.1",
+  "extensions": [
+    "https://standard.open-contracting.org/profiles/eu/master/en/extension.json",
+    "https://raw.githubusercontent.com/portaledcahn/ocds_tenderDatePublished_extension/master/extension.json",
+    "https://raw.githubusercontent.com/open-contracting-extensions/ocds_budget_breakdown_extension/master/extension.json",
+    "https://raw.githubusercontent.com/Crown-Commercial-Service/ocds_awards_datePublished_extension/main/extension.json",
+    "https://raw.githubusercontent.com/Crown-Commercial-Service/ocds_partyDetails_vcse_extension/main/extension.json",
+    "https://raw.githubusercontent.com/Crown-Commercial-Service/ocds_tender_suitability_extension/main/extension.json",
+    "https://raw.githubusercontent.com/open-contracting-extensions/ocds_pagination_extension/master/extension.json"
+  ],
+  "publishedDate": "2026-09-19T08:40:43+01:00",
+  "publisher": {
+    "name": "Cabinet Office",
+    "scheme": "GB-GOR",
+    "uid": "D2",
+    "uri": "https://www.gov.uk/government/organisations/cabinet-office"
+  },
+  "license": "http://www.nationalarchives.gov.uk/doc/open-government-licence/version/3/",
+  "publicationPolicy": "https://www.gov.uk/government/publications/open-contracting",
+  "releases": [
+    {
+      "ocid": "ocds-b5fd17-02f878ce-547b-46fd-a840-ddc7c37e1e80",
+      "id": "76371b58-f056-4c76-80d6-f175126a0eaf-914731",
+      "language": "en",
+      "date": "2026-09-19T03:40:43+01:00",
+      "tag": [
+        "tender"
+      ],
+      "initiationType": "tender",
+      "tender": {
+        "id": "PFRU2-2025-738",
+        "title": "Procurement of office and IT equipment",
+        "description": "Partnership Fund for a Resilient Ukraine Phase 2 (PFRU-2) is a multi-year, multi-donor-funded programme managed by the UK's Foreign, Commonwealth and Development Office.\r\nAs part of its project activities, PFRU-2 is seeking an organization to supply the office and IT equipment.",
+        "datePublished": "2026-09-19T03:40:43+01:00",
+        "status": "active",
+        "classification": {
+          "scheme": "CPV",
+          "id": "30000000",
+          "description": "Office and computing machinery, equipment and supplies except furniture and software packages"
+        },
+        "items": [
+          {
+            "id": "1",
+            "deliveryAddresses": [
+              {
+                "countryName": "Ukraine"
+              }
+            ]
+          }
+        ],
+        "value": {
+          "amount": 1,
+          "currency": "GBP"
+        },
+        "procurementMethod": "open",
+        "procurementMethodDetails": "Open procedure (above threshold)",
+        "tenderPeriod": {
+          "endDate": "2026-10-03T10:00:00+01:00"
+        },
+        "contractPeriod": {
+          "startDate": "2026-11-01T19:00:00Z",
+          "endDate": "2027-11-02T19:59:59Z"
+        },
+        "suitability": {
+          "sme": true,
+          "vcse": false
+        },
+        "mainProcurementCategory": "goods",
+        "documents": [
+          {
+            "id": "1",
+            "documentType": "tenderNotice",
+            "description": "Opportunity notice on Contracts Finder",
+            "url": "https://www.contractsfinder.service.gov.uk/Notice/76371b58-f056-4c76-80d6-f175126a0eaf",
+            "datePublished": "2026-09-19T03:40:43+01:00",
+            "format": "text/html",
+            "language": "en"
+          }
+        ]
+      },
+      "relatedProcesses": [
+        {
+          "id": "1",
+          "relationship": [
+            "parent"
+          ]
+        }
+      ],
+      "parties": [
+        {
+          "id": "GB-SRS-sid4gov.cabinetoffice.gov.uk/kg2DT6UE",
+          "name": "Chemonics International, Inc.",
+          "identifier": {
+            "legalName": "Chemonics International, Inc.",
+            "scheme": "GB-SRS",
+            "id": "sid4gov.cabinetoffice.gov.uk/kg2DT6UE"
+          },
+          "roles": [
+            "buyer"
+          ]
+        }
+      ],
+      "buyer": {
+        "id": "GB-SRS-sid4gov.cabinetoffice.gov.uk/kg2DT6UE",
+        "name": "Chemonics International, Inc."
+      }
+    },
+    {
+      "ocid": "ocds-b5fd17-d07175be-6023-460c-b319-b9273c66a36a",
+      "id": "6f10df35-baaa-4e86-9ced-05185c786d82-914726",
+      "language": "en",
+      "date": "2026-09-18T16:34:45+01:00",
+      "tag": [
+        "tender"
+      ],
+      "initiationType": "tender",
+      "tender": {
+        "id": "A06F33B8-A947-4E37-B20B-835B268A9EF3",
+        "title": "Taxi and MPV (1-8 seats) - Taxi and MPV (1-8 seats)",
+        "description": "Tender details:\r\n \r\nVehicle type: Saloon \r\nPassenger Assistant Required:  No \r\n \r\nProposed Taxi Route:\r\nFrom:  BN25 3SU \r\nTo:   TLP at Park Lane, Eastbourne \r\n\r\nFrequency: Monday and Thursday \r\nDaily School Time: 11:40 - 12:45\r\n This opportunity has been distributed on SProc.net",
+        "datePublished": "2026-09-18T16:34:45+01:00",
+        "status": "active",
+        "classification": {
+          "scheme": "CPV",
+          "id": "60000000",
+          "description": "Transport services (excl. Waste transport)"
+        },
+        "items": [
+          {
+            "id": "1",
+            "deliveryAddresses": [
+              {
+                "countryName": "United Kingdom"
+              }
+            ]
+          }
+        ],
+        "procurementMethod": "selective",
+        "procurementMethodDetails": "Restricted procedure (above threshold)",
+        "tenderPeriod": {
+          "endDate": "2026-09-23T11:00:00+01:00"
+        },
+        "contractPeriod": {
+          "startDate": "2026-09-28T01:00:00+01:00",
+          "endDate": "2029-07-31T23:59:59+01:00"
+        },
+        "suitability": {
+          "sme": true,
+          "vcse": false
+        },
+        "mainProcurementCategory": "services",
+        "documents": [
+          {
+            "id": "1",
+            "documentType": "tenderNotice",
+            "description": "Opportunity notice on Contracts Finder",
+            "url": "https://www.contractsfinder.service.gov.uk/Notice/6f10df35-baaa-4e86-9ced-05185c786d82",
+            "datePublished": "2026-09-18T16:34:45+01:00",
+            "format": "text/html",
+            "language": "en"
+          }
+        ]
+      },
+      "parties": [
+        {
+          "id": "GB-CFS-334419",
+          "name": "East Sussex County Council",
+          "identifier": {
+            "legalName": "East Sussex County Council"
+          },
+          "details": {
+            "url": "http://www.eastsussex.gov.uk"
+          },
+          "roles": [
+            "buyer"
+          ]
+        }
+      ],
+      "buyer": {
+        "id": "GB-CFS-334419",
+        "name": "East Sussex County Council"
+      }
+    }
+  ]
+}

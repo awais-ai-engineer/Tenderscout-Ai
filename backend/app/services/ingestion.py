@@ -1,6 +1,7 @@
 import logging
 from dataclasses import dataclass
 from datetime import UTC, datetime
+from typing import Literal
 
 from sqlalchemy import Engine, or_, select
 from sqlalchemy.dialects.postgresql import insert
@@ -18,7 +19,8 @@ logger = logging.getLogger(__name__)
 class IngestionResult:
     discovered: int
     created: int = 0
-    updated: int = 0
+    changed: int = 0
+    unchanged: int = 0
     failed: int = 0
     skipped: int = 0
 
@@ -61,7 +63,7 @@ def persist_record(
     source_id: int,
     record: ScrapedTender,
     observed_at: datetime,
-) -> bool:
+) -> Literal["created", "changed", "unchanged"]:
     existing = find_existing(session, source_id, record)
     values = record.model_dump()
     values["source_url"] = str(record.source_url)
@@ -74,12 +76,14 @@ def persist_record(
                 last_seen_at=observed_at,
             )
         )
-        return True
+        return "created"
+    changed = False
     for name, value in values.items():
         if value is not None and getattr(existing, name) != value:
             setattr(existing, name, value)
+            changed = True
     existing.last_seen_at = observed_at
-    return False
+    return "changed" if changed else "unchanged"
 
 
 def ingest_tenders(
@@ -115,7 +119,7 @@ def ingest_tenders(
             observed_at = datetime.now(UTC)
             for record in listing.records:
                 try:
-                    created = persist_record(
+                    outcome = persist_record(
                         session, stored_source.id, record, observed_at
                     )
                 except IdentityConflict as error:
@@ -127,10 +131,12 @@ def ingest_tenders(
                         error,
                     )
                     continue
-                if created:
+                if outcome == "created":
                     result.created += 1
+                elif outcome == "changed":
+                    result.changed += 1
                 else:
-                    result.updated += 1
+                    result.unchanged += 1
             stored_source.last_scraped_at = observed_at
     except SQLAlchemyError as error:
         logger.error(
@@ -141,11 +147,12 @@ def ingest_tenders(
         raise
     logger.info(
         "event=ingestion_complete source=%s discovered=%d created=%d "
-        "updated=%d failed=%d skipped=%d",
+        "changed=%d unchanged=%d failed=%d skipped=%d",
         source.slug,
         result.discovered,
         result.created,
-        result.updated,
+        result.changed,
+        result.unchanged,
         result.failed,
         result.skipped,
     )

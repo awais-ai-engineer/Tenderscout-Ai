@@ -10,6 +10,7 @@ from bs4 import BeautifulSoup, Tag
 from pydantic import ValidationError
 
 from app.schemas.source import SourceCreate
+from app.scrapers.errors import InvalidRecord, SourceFetchError, SourceParseError
 from app.scrapers.records import ParsedListing, ScrapedTender
 
 SOURCE = SourceCreate(
@@ -35,18 +36,6 @@ MONTHS = (
     "December",
 )
 logger = logging.getLogger(__name__)
-
-
-class SourceFetchError(RuntimeError):
-    pass
-
-
-class SourceParseError(ValueError):
-    pass
-
-
-class InvalidRecord(ValueError):
-    pass
 
 
 def fetch_listing(client: httpx.Client) -> str:
