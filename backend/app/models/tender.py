@@ -16,6 +16,7 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.db.base import Base
 
 if TYPE_CHECKING:
+    from app.models.document import TenderDocument
     from app.models.source import Source
 
 
@@ -61,3 +62,6 @@ class Tender(Base):
     )
 
     source: Mapped["Source"] = relationship(back_populates="tenders")
+    documents: Mapped[list["TenderDocument"]] = relationship(
+        back_populates="tender", passive_deletes="all"
+    )

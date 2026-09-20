@@ -26,3 +26,20 @@ class ParsedListing:
     @property
     def discovered(self) -> int:
         return len(self.records) + self.failed + self.skipped
+
+
+class DiscoveredDocument(BaseModel):
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True, frozen=True)
+
+    tender_external_id: str = Field(min_length=1, max_length=255)
+    source_document_id: str | None = Field(default=None, min_length=1, max_length=255)
+    title: str | None = None
+    source_url: HttpUrl
+    document_type: str | None = Field(default=None, max_length=255)
+    media_type: str | None = Field(default=None, max_length=255)
+
+
+@dataclass
+class DiscoveredDocuments:
+    records: list[DiscoveredDocument] = field(default_factory=list)
+    failed: int = 0

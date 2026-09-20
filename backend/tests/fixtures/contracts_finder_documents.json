@@ -1,0 +1,45 @@
+{
+  "license": "http://www.nationalarchives.gov.uk/doc/open-government-licence/version/3/",
+  "releases": [
+    {
+      "id": "76371b58-f056-4c76-80d6-f175126a0eaf-914731",
+      "ocid": "ocds-b5fd17-02f878ce-547b-46fd-a840-ddc7c37e1e80",
+      "tag": [
+        "tender"
+      ],
+      "tender": {
+        "title": "Procurement of office and IT equipment",
+        "status": "active",
+        "documents": [
+          {
+            "id": "1",
+            "documentType": "tenderNotice",
+            "description": "Opportunity notice on Contracts Finder",
+            "url": "https://www.contractsfinder.service.gov.uk/Notice/76371b58-f056-4c76-80d6-f175126a0eaf",
+            "datePublished": "2026-09-19T03:40:43+01:00",
+            "format": "text/html",
+            "language": "en"
+          },
+          {
+            "id": "2",
+            "documentType": "biddingDocuments",
+            "url": "https://www.contractsfinder.service.gov.uk/Notice/Attachment/5676d68a-0446-476e-a0cf-6cb4cc5c9e2a",
+            "format": "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+          },
+          {
+            "id": "3",
+            "documentType": "tenderNotice",
+            "url": "https://www.contractsfinder.service.gov.uk/Notice/Attachment/a3539193-93a4-4f36-a27c-04d10c5b5099",
+            "format": "application/pdf"
+          },
+          {
+            "id": "4",
+            "documentType": "biddingDocuments",
+            "url": "https://www.contractsfinder.service.gov.uk/Notice/Attachment/3dafd075-bfd6-4834-bfe6-dffd3fee3509",
+            "format": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+          }
+        ]
+      }
+    }
+  ]
+}

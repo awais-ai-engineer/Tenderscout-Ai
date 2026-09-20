@@ -25,6 +25,15 @@ class Settings(BaseSettings):
     redis_db: int = Field(default=0, ge=0)
     redis_password: SecretStr | None = None
 
+    document_storage_dir: Path = Path(".data/documents")
+    document_max_bytes: int = Field(default=26214400, gt=0)
+    document_max_pages: int = Field(default=500, gt=0)
+
+    @field_validator("document_storage_dir")
+    @classmethod
+    def resolve_storage_dir(cls, value: Path) -> Path:
+        return (ENV_FILE.parent / value).resolve()
+
     @field_validator("postgres_password", "redis_password")
     @classmethod
     def validate_password(cls, value: SecretStr | None) -> SecretStr | None:

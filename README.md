@@ -2,17 +2,17 @@
 
 TenderScout AI is intended to help teams discover and evaluate public tenders.
 The backend currently includes FastAPI, environment configuration, PostgreSQL
-models and migrations for sources and tenders, and Redis connection settings.
+models and migrations for sources, tenders and documents, and Redis connection settings.
 
 ## Structure
 
 - `backend/app/api`: HTTP routes.
 - `backend/app/core`: environment configuration.
 - `backend/app/db`: SQLAlchemy engine setup using psycopg.
-- `backend/app/models`: Source and Tender ORM entities.
+- `backend/app/models`: source, tender, document and version ORM entities.
 - `backend/app/schemas`: Pydantic create/read data contracts.
 - `backend/app/scrapers`: public listing fetching and source-specific parsing.
-- `backend/app/services`: transactional tender ingestion.
+- `backend/app/services`: tender ingestion, document storage and PDF extraction.
 - `backend/alembic`: versioned database migrations.
 - `backend/app/main.py`: application and resource lifecycle.
 - `compose.yaml`: local PostgreSQL and Redis services.
@@ -107,7 +107,7 @@ SQLAlchemy updates; direct SQL writers must set it themselves. `last_seen_at`
 must be set explicitly when an opportunity is observed again.
 
 On a disposable database, test reversal with the commands below. Downgrading to
-base deletes both tables and their records:
+base deletes all four tables and their records:
 
 ```text
 python -m alembic -c backend/alembic.ini downgrade base
@@ -201,8 +201,8 @@ python -m app.ingest --source contracts-finder --fetch-only
 ```
 
 This public endpoint was verified without login or an API key. One request fetches
-at most 20 releases; cursor/next links are not followed. There are no record, detail,
-or document requests. HTTPX uses a 30-second timeout per network operation and no
+at most 20 releases; cursor/next links are not followed. Tender ingestion makes no
+record, detail, or document requests. HTTPX uses a 30-second timeout per operation and no
 retries or redirects. The API documents a five-minute pause after HTTP 403;
 the command stops on that response rather than retrying.
 
@@ -236,8 +236,99 @@ contact details, buyer addresses, attachment links, and pagination removed. Its
 original OGL license field is retained. Tests never require either live source.
 Omitting `--source` keeps the previous Find a Tender default; unknown names are errors.
 
+## Tender documents
+
+Document discovery currently supports **Contracts Finder only**, using
+`tender.documents[]` in the same bounded 20-release search response. It reuses the
+notice UUID for parent identity and skips the canonical HTML notice. There are no
+Find a Tender detail requests. Apply migration `0002` and ingest tenders first:
+
+```text
+python -m alembic -c backend/alembic.ini upgrade head
+python -m app.ingest --source contracts-finder
+python -m app.documents --source contracts-finder
+```
+
+Set `PYTHONPATH=backend` as above. Missing parents or inactive sources are skipped;
+the command never creates placeholder tenders. The two commands fetch independently,
+so a moving recent batch may contain notices not ingested by the previous command.
+Metadata-only discovery needs no PostgreSQL configuration, downloads no PDF bodies,
+and writes no files:
+
+```text
+python -m app.documents --source contracts-finder --fetch-only
+```
+
+Revision `0002` adds `tender_documents` (source ID, URL, optional title/type/media
+type and observation timestamps) and `document_versions` (SHA-256, size, relative
+path, download time and extraction result). Document identity prefers the source
+document ID within a tender, with URL fallback; both are uniquely constrained.
+Conflicting identities fail without merging. Rediscovery advances `last_seen_at`,
+preserves `first_seen_at`, and updates provided fields without clearing omitted ones.
+Deleting a tender with documents is restricted. Deleting a logical document cascades
+to its versions, in both the ORM and database; it does not remove stored files.
+
+Only metadata explicitly marked `application/pdf` on the observed exact hostname
+`www.contractsfinder.service.gov.uk` is automatically downloaded. HTTPS, no URL
+credentials, and the default port or port 443 are required. All redirects are
+rejected, including same-host redirects. External links and other formats remain
+metadata only. Requests use HTTPX streaming, an identifiable user agent, a 10-second
+connect/30-second operation timeout, no authentication, no environment proxies,
+no retries, and no automatic decompression. Responses must have PDF magic bytes and
+either `application/pdf` or `application/octet-stream` content type.
+
+Configuration defaults:
+
+| Setting | Default |
+| --- | --- |
+| `DOCUMENT_STORAGE_DIR` | `.data/documents`, relative to the repository root |
+| `DOCUMENT_MAX_BYTES` | `26214400` (25 MiB), checked against headers and streamed bytes |
+| `DOCUMENT_MAX_PAGES` | `500`, checked before text extraction |
+
+Files are SHA-256 hashed while streaming to temporary files. After validation they
+are atomically placed at `<first-two-hash-characters>/<sha256>.pdf`; source filenames
+are never used. Failed downloads clean up partial files. `.data/` is ignored by Git;
+if changing the storage directory, keep that location outside tracked source files.
+The storage directory is a trusted local application directory, not shared with
+untrusted writers.
+
+Metadata commits before network I/O. A short read detects an existing hash; pypdf
+extracts only new versions outside transactions. A final short transaction locks
+the logical document and rechecks `(document_id, content_hash)` before inserting.
+Content A, A, B therefore retains one logical document and two immutable versions;
+the service never updates older version rows. Downloads are repeated to detect
+changed bytes; HTTP validators and automatic re-extraction are not implemented.
+File storage and the database are not one atomic transaction: a later database
+failure can leave an unreferenced, complete hash file. There is no automatic cleanup
+of complete files because content can be shared by multiple documents.
+
+pypdf extracts page text separated by blank lines and removes NUL characters.
+Statuses are `extracted`, `empty` (valid but no extractable text), and `failed`
+(malformed/encrypted PDF, page limit or extraction error). Extraction failure
+retains the raw file and version with a concise error. Scanned PDFs may be empty;
+OCR is not implemented. Byte/page limits do not provide CPU or memory isolation
+against every pathological PDF; extraction currently runs in the CLI process.
+
+The summary separates committed metadata outcomes, new versions, unchanged hashes,
+extracted/empty results, failures and skips. These counters describe different
+stages and should not all be summed. `discovered` counts valid normalized attachment
+observations (including repeated releases); malformed release/attachment metadata
+adds to `failed`. Skips include missing parents and unsupported download candidates.
+Failures return exit code 1; valid work already committed remains committed.
+
+The document JSON fixture preserves real API attachment metadata captured on
+2026-09-20 under OGL v3.0, without contacts. These attachments provide no title;
+tests separately inject a clearly synthetic title to check optional-field handling.
+`tiny_text.pdf` is a locally generated 973-byte, two-page text fixture, not a
+downloaded tender. Unit tests use MockTransport and SQLite for domain behavior,
+including A/A/B history, deletion, failure retention and transaction boundaries.
+Offline PostgreSQL SQL is checked against all model metadata. Live PostgreSQL
+migration, processing, locking and concurrent idempotency remain pending while
+Docker/PostgreSQL is unavailable.
+
 ## Current limitations
 
 Only Find a Tender and Contracts Finder are integrated. There are no CRUD endpoints,
-AI/RAG features, workers, frontend, or tender matching. No documents are downloaded,
-and content hashing is not implemented.
+AI/RAG features, workers, frontend, or tender matching. Document processing is manual,
+Contracts Finder PDF-only, and bounded to one recent API batch. There is no OCR,
+DOCX/Excel/ZIP extraction, scheduling, or cloud document storage.
