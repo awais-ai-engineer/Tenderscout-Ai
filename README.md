@@ -11,6 +11,8 @@ models and migrations for sources and tenders, and Redis connection settings.
 - `backend/app/db`: SQLAlchemy engine setup using psycopg.
 - `backend/app/models`: Source and Tender ORM entities.
 - `backend/app/schemas`: Pydantic create/read data contracts.
+- `backend/app/scrapers`: public listing fetching and source-specific parsing.
+- `backend/app/services`: transactional tender ingestion.
 - `backend/alembic`: versioned database migrations.
 - `backend/app/main.py`: application and resource lifecycle.
 - `compose.yaml`: local PostgreSQL and Redis services.
@@ -118,8 +120,66 @@ a password; use a dummy environment value for offline checks. SQL rendering does
 not verify live migration execution. The migration tests check generated SQL
 against model metadata without a database.
 
+## First source: Find a Tender
+
+The adapter reads the first public [Find a Tender listing page](https://www.find-tender.service.gov.uk/Search/Results)
+and selects **UK4: Tender notice** records. It uses HTTPX and Beautiful Soup;
+JavaScript rendering, login, and detail requests are not needed for listing data.
+The service's [terms](https://www.find-tender.service.gov.uk/Home/TermsAndConditions)
+permit reuse of licensed content. The HTML fixture contains public sector
+information licensed under the [Open Government Licence v3.0](https://www.nationalarchives.gov.uk/doc/open-government-licence/version/3/).
+
+After configuring PostgreSQL and applying migrations, run from the repository root
+with `PYTHONPATH=backend` set as described above:
+
+```text
+python -m app.ingest
+```
+
+To fetch and validate the real listing without database configuration or writes:
+
+```text
+python -m app.ingest --fetch-only
+```
+
+Collected fields are the notice ID, title, buyer/organization, description excerpt,
+canonical notice URL, location, publication time, and submission deadline when
+present. Category is not supplied by this listing and remains unset. Displayed
+English dates are interpreted as `Europe/London` local time and converted to UTC;
+unrecognized dates and ambiguous/nonexistent daylight-saving times are rejected.
+
+Each run requests `robots.txt` and one listing page, with an identifiable user agent
+and a 20-second HTTPX timeout per network operation. A missing robots file (404) is
+allowed; an explicit denial or HTTP failure stops the run. There are no retries,
+redirect following, detail requests, or access-control workarounds. A sampled
+detail URL returned HTTP 403 during development; only listing access was verified.
+
+Ingestion commits a page in one transaction. A source-row lock serializes concurrent
+runs for that source, and source creation handles slug uniqueness with `ON CONFLICT`.
+Tenders match by source plus external ID, with source plus canonical URL as fallback.
+Conflicting identities are logged and skipped rather than merged. Other database
+errors roll back the whole transaction and propagate. Inactive sources are not
+reactivated. Existing records keep `first_seen_at` and receive a new `last_seen_at`;
+provided mutable values are updated, while missing optional values preserve known
+data. Content hashes remain unset because direct field comparison is sufficient.
+
+The summary reports actual page cards discovered, records created, records updated
+(including seen-again records), malformed/conflicting records failed, and unsupported
+notice types skipped. Repeated cards within a page count as separate observations.
+Partial failures return exit code 1 after committing valid records. Source-level
+fetch/parse failures and database failures also return 1, without success counts.
+Operational logs go to stderr. `--fetch-only` reports valid records, not insert counts.
+
+Coverage is intentionally limited to the first page and UK4 notices. Descriptions
+may be truncated; there is no pagination, full detail collection, or category/CPV
+extraction. Missing result structure raises an error; a valid zero notice count or
+a page containing only other notice types is reported separately. Selectors and
+date labels may change. Parser tests use saved HTML and mocked HTTP; ingestion
+tests use in-memory SQLite with unchanged production models. They verify business
+behavior, not PostgreSQL row locking, concurrency, or live migration execution.
+
 ## Current limitations
 
-No tender sources are integrated yet. There are no scrapers, CRUD endpoints,
-AI/RAG features, workers, frontend, or tender matching. The data layer stores
-source URLs and optional content hashes but performs no normalization or hashing.
+Only the Find a Tender listing adapter is integrated. There are no CRUD endpoints,
+AI/RAG features, workers, frontend, or tender matching. No documents are downloaded,
+and content hashing is not implemented.
