@@ -706,3 +706,107 @@ credentials are unavailable. No real embedding or answer request was made for
 Task 8 validation. Ask Tender excludes company profiles and matches; it adds no
 cross-tender search, external search fallback, conversational history, proposal
 generation, frontend, agents, tools, workers or scheduling.
+
+## Revision history and deterministic changes (Task 9)
+
+`Tender` remains mutable current state. Migration **0006** adds three tables;
+migrations 0001–0005 are unchanged and no historical data is invented or backfilled.
+
+| Model | Stored fields |
+| --- | --- |
+| `TenderRevision` | ID, tender FK, sequential revision index, snapshot hash, external ID, title, organization, description, source URL, category, location, published/deadline timestamps, source content hash, observed/created timestamps |
+| `TenderMetadataChangeSet` | ID, tender FK, from/to revision FKs, changeset version, has-changes flag, count, changed fields, changes, created timestamp |
+| `DocumentAnalysisChangeSet` | ID, logical document FK, from/to analysis FKs, changeset version, has-changes flag, count, category counts, changes, created timestamp |
+
+All three are append-only through application services, have no `updated_at`, and
+use timezone-aware timestamp columns. JSON fields use PostgreSQL JSONB and SQLite
+JSON. All new FKs use `RESTRICT`: recorded history prevents cascading deletion of
+its referenced tender, revisions, document or analyses. Immutability is a service
+contract, not a database trigger preventing administrative updates.
+
+**Capture and hashing.** New tenders receive revision 1. A legacy tender receives
+a baseline of its stored pre-update state, with its previous `last_seen_at` as
+`observed_at`; a changed observation then appends revision 2. This preserves only
+the state already stored, not earlier unrecorded history. Incoming `None` fields
+continue to preserve known values. Each revision contains the full resulting state.
+Last-seen-only updates create no revision. A → B → A creates three revisions:
+`(tender_id, revision_index)` is unique, but snapshot hashes are not unique.
+
+SHA-256 covers UTF-8 canonical JSON of the eleven source/business fields listed
+above, including the source content hash independently of the new snapshot hash.
+Keys are sorted, separators compact, Unicode unescaped, and datetimes represented
+in UTC with six fractional digits and a `Z` suffix. Naive timestamps are treated
+as UTC for SQLite compatibility; production timestamps are aware. Database IDs and
+observation/bookkeeping timestamps are excluded. Source strings are not normalized.
+
+Existing ingestion locks serialize revision indices. Current-state updates, revision
+writes and automatic previous-to-new metadata changesets share the ingestion
+transaction and roll back together. Existing created/changed/unchanged/failed/skipped
+counters keep their meaning. Unchanged observations produce no changeset.
+
+**Metadata comparisons.** Both revisions must exist, belong to one tender and have
+strictly increasing revision indices. Each business field is compared in fixed
+order: null to value is added, value to null removed, otherwise modified. Sparse
+ingestion does not itself clear a field. Short values are retained exactly;
+descriptions and strings over 240 characters use SHA-256 hashes and 240-character
+previews, with full values retained in the revisions.
+
+**Structured comparisons.** Both analyses must be completed and refer to different
+versions of the same logical `TenderDocument`. Ordering uses `(downloaded_at, id)`.
+Schema, provider, model and prompt version must match; only the supported analysis
+schema is accepted. Same-version, reversed, cross-document and model/prompt-drift
+comparisons are rejected. Validated structured facts are compared, never raw model
+response strings. No LLM, embedding or HTTP request is used for diffing.
+
+Value lists first match by casefolded, whitespace-normalized exact value. Evidence
+changes still produce a modified record. Identical repeated-key payloads pair first
+so reordering is not a change; ambiguous remaining same-key pairs require review.
+Unmatched items may pair within their category using token-set Jaccard similarity
+at **`Decimal("0.75")`**, inclusive. Tokens include whole numbers, currency/sign
+symbols, words (including negations), and adjacent alphabetic word pairs. At least
+three distinct alphabetic words are required. This word-pair component permits the
+short annual-turnover example to meet the threshold. Candidates sort by descending
+similarity, then old index, then new index; each item is used once. Lexical pairs
+are marked `requires_review=true`; this is not semantic equivalence. Unpaired items
+remain removed/added.
+
+Important dates match normalized labels and preserve exact source date wording,
+notes and evidence, including uncertain dates. Evaluation criteria match normalized
+criterion names and detect weighting, notes and evidence changes. Contacts first
+remove identical payloads, then match unique normalized email, then unique name plus
+organization; uncertain identities remain added/removed. Changed normalized summary
+or summary evidence produces a review-required change, not independent proof of a
+legal change. Detailed old/new items retain exact evidence and original wording.
+Category counts are unweighted factual counts, with no materiality or impact score.
+
+**Persistence.** `CHANGESET_VERSION = "v1"`. The same ordered pair plus version
+reuses its row; a version bump appends another row without overwriting history.
+Every future result-affecting algorithm change must bump this constant. Standalone
+comparisons read immutable inputs, close the session, compute, then recheck and
+persist in a short transaction, with unique-constraint race recovery. Automatic
+metadata comparison deliberately stays inside ingestion's transaction for atomicity.
+
+From the repository root with `PYTHONPATH=backend`, after migrating the database:
+
+```shell
+python -m app.changes history --tender-id 5
+python -m app.changes history --tender-id 5 --after-index 100 --limit 100
+python -m app.changes metadata --from-revision-id 12 --to-revision-id 13
+python -m app.changes document --from-analysis-id 20 --to-analysis-id 27
+```
+
+History returns at most 100 rows per page with IDs, index, observation/deadline and
+hash prefix, never descriptions. Comparisons print at most 25 records with old/new
+previews of at most 320 serialized characters each (plus a truncation marker).
+Full structured changes remain in the database. These commands need database
+configuration, but no AI credentials.
+
+Tests cover revisions, legacy baselines, sparse updates, A → B → A, transaction
+rollback, deterministic pairing, comparability, exact evidence, idempotency/version
+bumps, CLI bounds, migration SQL, constraints and deletion restrictions. Task 9
+tests block HTTP, sockets and AI/embedding clients. SQLite and offline PostgreSQL
+SQL rendering do not establish live PostgreSQL behavior: live migration, ingestion,
+concurrent writes and database idempotency verification remain **pending** while
+PostgreSQL/Docker is unavailable. There are no claims of complete legal-change
+detection or document removal: no point-in-time tender-wide document manifest exists.
+Results depend on previously captured metadata and completed structured analyses.

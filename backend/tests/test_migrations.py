@@ -48,6 +48,7 @@ class MigrationTests(unittest.TestCase):
         self.assertIn("'0003'", sql)
         self.assertIn("'0004'", sql)
         self.assertIn("'0005'", sql)
+        self.assertIn("'0006'", sql)
 
     def test_postgresql_downgrade_sql_drops_child_table_first(self) -> None:
         output = StringIO()
@@ -164,3 +165,34 @@ class MigrationTests(unittest.TestCase):
         )
         self.assertIn("DROP TABLE tender_questions", sql)
         self.assertNotIn("DROP EXTENSION", sql)
+
+    def test_0006_only_adds_revision_and_change_tables_without_backfill(self):
+        output = StringIO()
+        with patch.dict(
+            os.environ, {"POSTGRES_PASSWORD": "offline-test-only"}, clear=True
+        ):
+            command.upgrade(
+                Config(str(CONFIG_FILE), output_buffer=output), "0005:0006", sql=True
+            )
+        sql = output.getvalue()
+        self.assertEqual(sql.count("CREATE TABLE"), 3)
+        self.assertIn("CREATE TABLE tender_revisions", sql)
+        self.assertIn("CREATE TABLE tender_metadata_change_sets", sql)
+        self.assertIn("CREATE TABLE document_analysis_change_sets", sql)
+        self.assertIn("changes JSONB", sql)
+        self.assertNotIn("ALTER TABLE", sql)
+        self.assertNotIn("INSERT INTO tender", sql)
+        self.assertNotIn("snapshot_hash)", sql)
+        output = StringIO()
+        with patch.dict(
+            os.environ, {"POSTGRES_PASSWORD": "offline-test-only"}, clear=True
+        ):
+            command.downgrade(
+                Config(str(CONFIG_FILE), output_buffer=output), "0006:0005", sql=True
+            )
+        sql = output.getvalue()
+        self.assertLess(
+            sql.index("DROP TABLE tender_metadata_change_sets"),
+            sql.index("DROP TABLE tender_revisions"),
+        )
+        self.assertIn("DROP TABLE document_analysis_change_sets", sql)

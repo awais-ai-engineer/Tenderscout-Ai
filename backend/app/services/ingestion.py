@@ -11,6 +11,7 @@ from sqlalchemy.orm import Session
 from app.models import Source, Tender
 from app.schemas.source import SourceCreate
 from app.scrapers.records import ParsedListing, ScrapedTender
+from app.services.revisions import capture_revision, ensure_baseline
 
 logger = logging.getLogger(__name__)
 
@@ -68,21 +69,24 @@ def persist_record(
     values = record.model_dump()
     values["source_url"] = str(record.source_url)
     if existing is None:
-        session.add(
-            Tender(
-                source_id=source_id,
-                **values,
-                first_seen_at=observed_at,
-                last_seen_at=observed_at,
-            )
+        tender = Tender(
+            source_id=source_id,
+            **values,
+            first_seen_at=observed_at,
+            last_seen_at=observed_at,
         )
+        session.add(tender)
+        session.flush()
+        ensure_baseline(session, tender)
         return "created"
+    previous = ensure_baseline(session, existing)
     changed = False
     for name, value in values.items():
         if value is not None and getattr(existing, name) != value:
             setattr(existing, name, value)
             changed = True
     existing.last_seen_at = observed_at
+    capture_revision(session, existing, previous, observed_at)
     return "changed" if changed else "unchanged"
 
 

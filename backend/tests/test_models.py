@@ -23,6 +23,9 @@ class ModelTests(unittest.TestCase):
                 "document_chunks",
                 "chunk_embeddings",
                 "tender_questions",
+                "tender_revisions",
+                "tender_metadata_change_sets",
+                "document_analysis_change_sets",
             },
         )
         required = {
@@ -239,6 +242,60 @@ class ModelTests(unittest.TestCase):
                 "tender_questions": {"answer", "failure_reason"},
             }
         )
+        required.update(
+            {
+                "tender_revisions": {
+                    "id",
+                    "tender_id",
+                    "revision_index",
+                    "snapshot_hash",
+                    "title",
+                    "source_url",
+                    "observed_at",
+                    "created_at",
+                },
+                "tender_metadata_change_sets": {
+                    "id",
+                    "tender_id",
+                    "from_revision_id",
+                    "to_revision_id",
+                    "changeset_version",
+                    "has_changes",
+                    "change_count",
+                    "changed_fields",
+                    "changes",
+                    "created_at",
+                },
+                "document_analysis_change_sets": {
+                    "id",
+                    "tender_document_id",
+                    "from_analysis_id",
+                    "to_analysis_id",
+                    "changeset_version",
+                    "has_changes",
+                    "change_count",
+                    "category_counts",
+                    "changes",
+                    "created_at",
+                },
+            }
+        )
+        optional.update(
+            {
+                "tender_revisions": {
+                    "external_id",
+                    "organization",
+                    "description",
+                    "category",
+                    "location",
+                    "published_at",
+                    "deadline",
+                    "source_content_hash",
+                },
+                "tender_metadata_change_sets": set(),
+                "document_analysis_change_sets": set(),
+            }
+        )
         for name, table in Base.metadata.tables.items():
             with self.subTest(table=name):
                 self.assertEqual(
@@ -262,6 +319,17 @@ class ModelTests(unittest.TestCase):
             constraints,
             {
                 "uq_sources_slug": ("slug",),
+                "uq_revisions_index": ("tender_id", "revision_index"),
+                "uq_metadata_changes_identity": (
+                    "from_revision_id",
+                    "to_revision_id",
+                    "changeset_version",
+                ),
+                "uq_document_changes_identity": (
+                    "from_analysis_id",
+                    "to_analysis_id",
+                    "changeset_version",
+                ),
                 "uq_chunks_identity": (
                     "document_version_id",
                     "chunker_version",

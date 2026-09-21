@@ -1,5 +1,10 @@
 from app.db.base import Base
 from app.models.analysis import TenderAnalysis
+from app.models.changes import (
+    DocumentAnalysisChangeSet,
+    TenderMetadataChangeSet,
+    TenderRevision,
+)
 from app.models.company import (
     CompanyCapability,
     CompanyCertification,
@@ -27,4 +32,7 @@ __all__ = [
     "DocumentChunk",
     "ChunkEmbedding",
     "TenderQuestion",
+    "TenderRevision",
+    "TenderMetadataChangeSet",
+    "DocumentAnalysisChangeSet",
 ]
