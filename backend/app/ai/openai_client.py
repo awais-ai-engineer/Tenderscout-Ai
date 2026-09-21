@@ -5,7 +5,7 @@ from openai import (
     DefaultHttpxClient,
     OpenAI,
 )
-from pydantic import SecretStr, ValidationError
+from pydantic import BaseModel, SecretStr, ValidationError
 
 from app.ai.client import ProviderError, ProviderFailure
 from app.ai.schemas import TenderAnalysisOutput
@@ -15,8 +15,13 @@ class OpenAIStructuredClient:
     provider = "openai"
 
     def __init__(
-        self, api_key: SecretStr, *, http_client: DefaultHttpxClient | None = None
+        self,
+        api_key: SecretStr,
+        *,
+        http_client: DefaultHttpxClient | None = None,
+        output_schema: type[BaseModel] = TenderAnalysisOutput,
     ):
+        self._output_schema = output_schema
         self._client = OpenAI(
             api_key=api_key.get_secret_value(),
             base_url="https://api.openai.com/v1",
@@ -34,7 +39,7 @@ class OpenAIStructuredClient:
                     {"role": "system", "content": instructions},
                     {"role": "user", "content": text},
                 ],
-                text_format=TenderAnalysisOutput,
+                text_format=self._output_schema,
                 max_output_tokens=8000,
                 truncation="disabled",
                 store=False,

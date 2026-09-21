@@ -2,15 +2,17 @@
 
 TenderScout AI is intended to help teams discover and evaluate public tenders.
 The backend currently includes FastAPI, environment configuration, PostgreSQL
-models and migrations for sources, tenders, documents and analyses, and Redis settings.
+models and migrations for tenders, document analysis, company matching and document-scoped
+RAG, and Redis settings.
 
 ## Structure
 
 - `backend/app/api`: HTTP routes.
 - `backend/app/core`: environment configuration.
 - `backend/app/db`: SQLAlchemy engine setup using psycopg.
-- `backend/app/models`: source, tender, document, version and analysis ORM entities.
-- `backend/app/ai`: structured output schemas, versioned prompt and OpenAI client.
+- `backend/app/models`: tender, document, analysis, company, match and RAG ORM entities.
+- `backend/app/ai`: structured output and embedding provider clients.
+- `backend/app/rag`: chunking, configuration, answer schema and versioned prompt.
 - `backend/app/schemas`: Pydantic create/read data contracts.
 - `backend/app/scrapers`: public listing fetching and source-specific parsing.
 - `backend/app/services`: tender ingestion, document storage and PDF extraction.
@@ -330,7 +332,7 @@ Docker/PostgreSQL is unavailable.
 ## Current limitations
 
 Only Find a Tender and Contracts Finder are integrated. There are no CRUD endpoints,
-RAG features, workers or frontend. Document processing is manual,
+workers or frontend. Document processing is manual,
 Contracts Finder PDF-only, and bounded to one recent API batch. There is no OCR,
 DOCX/Excel/ZIP extraction, scheduling, or cloud document storage.
 
@@ -393,7 +395,8 @@ the extra character when needed, with `\n\n... [TRUNCATED BY TENDERSCOUT] ...\n\
 between them. The marker counts toward the limit. SHA-256 covers the exact UTF-8
 prepared text sent as the user message, including the marker, not the binary hash,
 IDs, timestamps or system prompt. This is a character bound, not a token estimate;
-model context limits may still reject a request. There is no chunking or retrieval.
+model context limits may still reject a request. This analysis preparation does not
+use chunking or retrieval; Ask Tender has a separate indexing workflow below.
 
 `tender_analyses` stores the document-version FK, schema/provider/model/prompt/input
 identity, status, raw response, validated fields, optional failure reason and an
@@ -426,8 +429,8 @@ Tests use a synthetic source/output fixture, a test-only fake client, and the re
 SDK with mocked HTTP transport. Prepare-only is exercised against a SQLite fixture;
 this does not verify live PostgreSQL. Live PostgreSQL migration/analysis and a real
 LLM call remain pending until a database, extracted version and API credentials are
-available. No RAG, embeddings or proposal generation is implemented.
-Company matching is described below.
+available. Company matching and Ask Tender are described below.
+No proposal generation is implemented.
 
 ## Company profiles and deterministic matching
 
@@ -546,4 +549,160 @@ transactions, uniqueness, snapshots and deletion, plus offline PostgreSQL migrat
 rendering. SQLite is not live PostgreSQL verification. Live migration, matching
 idempotency and concurrent insertion verification remain pending when PostgreSQL
 is unavailable. Human review is required; matching makes no bid/no-bid decision.
-There is no RAG, automatic proposal generation or automated bidding.
+There is no automatic proposal generation or automated bidding.
+
+## Ask Tender: document-scoped RAG
+
+Revision **0005** adds document chunks, embeddings and append-only question results.
+Use PostgreSQL with the [pgvector extension](https://github.com/pgvector/pgvector).
+Compose now uses `pgvector/pgvector:pg17`, retaining PostgreSQL major version 17
+and the existing volume. The database migration runs
+`CREATE EXTENSION IF NOT EXISTS vector`; the server must have the extension installed
+and the migration role must have permission to enable it. Downgrade drops only the
+three RAG tables, retaining the potentially shared extension. Revisions 0001–0004
+are unchanged. No running database or volume is replaced automatically.
+
+Install the updated requirements, configure the root `.env`, and migrate:
+
+```powershell
+python -m pip install -r backend/requirements-dev.txt
+$env:PYTHONPATH = "backend"
+python -m alembic -c backend/alembic.ini upgrade head
+python -m app.index_document --document-version-id 12 --prepare-only
+python -m app.index_document --document-version-id 12
+python -m app.ask --document-version-id 12 --question "What is the submission deadline?" --retrieve-only
+python -m app.ask --document-version-id 12 --question "What is the submission deadline?"
+```
+
+Replace `12` with an extracted document version ID. Index prepare-only requires
+database access, but no AI key: it reports count and minimum/maximum/average chunk
+lengths without writes or provider calls. Retrieve-only requires embedding
+credentials, prints ranked IDs and previews bounded to 160 source characters,
+and neither calls the answer model nor stores a question. Normal indexing reports
+created/reused counts without source text; answering prints the answer, short
+citations and question status. Failed commands return exit code 1; insufficient
+evidence and skipped ineligible documents are valid outcomes.
+
+| Setting | Default / requirement |
+| --- | --- |
+| `OPENAI_API_KEY` | Existing secret setting; needed for embedding and answer calls |
+| `AI_EMBEDDING_MODEL` | No default; explicitly select an accessible model accepting `dimensions=1536` |
+| `AI_EMBEDDING_DIMENSIONS` | `1536`, the only dimension supported by revision 0005 |
+| `AI_MODEL` | Existing answer model setting; Responses structured-output support required |
+| `RAG_CHUNK_SIZE_CHARS` | `2000`, allowed 256–8000 |
+| `RAG_CHUNK_OVERLAP_CHARS` | `250`, nonnegative and strictly less than chunk size |
+| `RAG_EMBEDDING_BATCH_SIZE` | `16`, allowed 1–64 |
+| `RAG_TOP_K` | `5`, allowed 1–20 |
+| `RAG_MAX_CONTEXT_CHARS` | `12000`, allowed 256–64000 |
+
+Models are not assumed interchangeable or available to every account. Embedding
+configuration is separate from the answer model. Changing vector dimensions needs
+a new migration and a deliberate compatibility plan; setting a different value in
+the environment fails validation. Model aliases can change upstream behavior;
+prefer pinned snapshots where available. No automatic provider retry is enabled.
+
+**Chunking and indexing.** `CHUNKER_VERSION="v1"` normalizes CRLF/CR to LF, removes
+NULs and trims outer whitespace, then chunks the **full** extracted text without
+whole-document truncation or summaries. Chunks prefer paragraph endings, then
+whitespace boundaries in the latter part of the target window. Overlap is at most
+the configured size, shortened when needed to start at a word boundary. A long
+unbroken token is cut at the character bound; whitespace-only pieces are omitted.
+Offsets are zero-based, end-exclusive Python character positions in normalized
+text, not byte offsets, PDF coordinates or page numbers. Each hash is SHA-256 of
+the exact UTF-8 chunk text. Empty/failed extractions are skipped.
+
+Chunks retain their size/overlap configuration. An exact rerun reuses them;
+changing source text or configuration under the same document/chunker identity
+fails instead of overwriting history. Bump the chunker version for a new algorithm
+or size/overlap policy and reindex. Retrieval selects only its configured chunker
+version; it does not mix old and new sets.
+
+The small `EmbeddingClient` protocol has one production implementation using the
+official OpenAI SDK. It sends bounded batches in source order, requests float
+vectors and explicit dimensions, validates returned indexes/count/dimensions,
+rejects nonnumeric, nonfinite and zero vectors, and converts values to float32 to
+match pgvector storage. The input hash covers the exact unsummarized text sent.
+API calls run outside database transactions. Chunks commit together; each validated
+embedding batch commits separately. A later failure retains valid earlier batches,
+and reruns embed only missing chunks. Short writes lock the document and recheck
+identity; uniqueness conflicts are handled without overwriting another writer.
+
+**Storage and search.** The new tables are:
+
+| Model | Fields and identity |
+| --- | --- |
+| `DocumentChunk` | ID, document-version FK, chunk index/version, chunk size/overlap, exact text/hash, start/end offsets, creation timestamp; unique document/version/index |
+| `ChunkEmbedding` | ID, chunk FK, provider, model, dimensions, real `VECTOR(1536)`, input hash, creation timestamp; unique chunk/provider/model/dimensions/input hash |
+| `TenderQuestion` | ID, document-version FK, normalized question/hash, embedding/answer identities, chunker/retrieval/prompt versions, top-K, context bound/hash/ordered chunk IDs, retrieval outcome, status, nullable answer/failure reason, JSONB citations, creation timestamp |
+
+All three are append-only through the services, without `updated_at`; database
+triggers do not prohibit privileged manual edits. FKs restrict deleting indexed
+document versions, chunks with embeddings, and versions with question history.
+Creation timestamps are timezone-aware. Practical FK indexes support scoped lookup.
+Question vectors are not stored. Citation records retain document version, chunk
+ID, chunk index and quote; there are **no invented page numbers**.
+
+`RETRIEVAL_VERSION="v1"` uses the pgvector SQLAlchemy
+[`cosine_distance` operator](https://github.com/pgvector/pgvector-python#sqlalchemy)
+for exact search, with no ANN index yet. Every query filters document version,
+chunker version, embedding provider/model/dimensions and input hash. Missing or
+partially indexed sets fail clearly before embedding the question. The question
+embedding call occurs outside a transaction. Results sort by increasing distance,
+then chunk index and ID, and obey top-K. No unvalidated similarity threshold is
+used; distance is not confidence. Tests store vectors as JSON in SQLite and install
+a test-only cosine function/operator adapter; production queries use real pgvector.
+
+**Grounded answers.** Retrieved chunks are serialized into deterministic JSON
+records in rank order. The context cap counts all JSON text and metadata characters.
+Whole chunks that exceed remaining capacity are skipped; later smaller chunks can
+still fit. There is no mid-chunk truncation marker. Only included chunks may be
+cited. No fitting context returns `insufficient` without an answer-provider call.
+The question is a separate JSON field; context is explicitly labeled untrusted.
+
+Answer prompt **v1** requires use of supplied text only, no outside knowledge or
+missing-fact inference, and citations supporting every factual statement. It tells
+the model to ignore document prompt injection, provide no legal advice, and make
+no bid/no-bid decision. The existing structured client accepts the narrowly added
+answer-schema option; analysis retains its original default schema and behavior.
+
+`TenderAnswerOutput` forbids extra fields and coercion. Supported output requires
+an answer of at most 4,000 characters and 1–20 `{chunk_id, quote}` citations with
+quotes at most 500 characters. Insufficient output must use
+`answer=null`, `citations=[]`, `insufficient_evidence=true`; the CLI displays
+“The answer is not established by the indexed tender text.” Quotes are checked
+against the exact included chunk after whitespace normalization, never combined
+across chunks or matched against metadata. Identical normalized citations are
+deduplicated. Invalid IDs, fabricated quotations and malformed outputs produce a
+stored `failed` result with no accepted answer/citations. Exact source matching
+does **not** prove that every answer claim follows from the quotation, that the
+retrieval found every relevant clause, or that prompt injection is always resisted.
+Human review is required; there is no RAG quality benchmark yet.
+
+**Question history and failures.** Question normalization changes line endings and
+trims only outer whitespace, preserving case and internal spacing. SHA-256 covers
+the normalized question sent to both providers and the exact ordered context JSON.
+Question identity includes document, question hash, embedding provider/model/dimension,
+answer provider/model, chunker/retrieval/prompt versions, top-K, context limit/hash
+and whether retrieval succeeded. Exact repeats reuse the saved result without an
+answer call, including prior failures. Retrieval and question embedding still run
+to establish the current context before reuse. Changed context or relevant identity
+creates another row. A retrieval failure is distinct from a subsequent successful
+retrieval, so recovery cannot reuse the failed-context row. There is no force/retry
+mode that overwrites question history.
+
+Provider errors are sanitized; response bodies, API headers, keys, chain-of-thought
+and query vectors are not saved. Questions, source chunks, accepted answers and
+quotes are intentionally persisted and should be treated as document data. A
+database write failure raises an error instead of claiming a saved answer; storage
+failure itself cannot reliably be recorded in that unavailable database.
+
+Tests cover chunking, validation, batches/resumption, idempotency, immutable history,
+transaction boundaries, cross-tender isolation, exact PostgreSQL SQL compilation,
+citation validation, failures, SDK mock transports and CLI workflows. SQLite tests
+and offline migration rendering do **not** establish live pgvector behavior.
+Live migration/indexing/retrieval/concurrent writes and real embedding/answer API
+verification remain pending while local PostgreSQL/Docker and configured models/
+credentials are unavailable. No real embedding or answer request was made for
+Task 8 validation. Ask Tender excludes company profiles and matches; it adds no
+cross-tender search, external search fallback, conversational history, proposal
+generation, frontend, agents, tools, workers or scheduling.

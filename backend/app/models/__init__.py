@@ -8,6 +8,7 @@ from app.models.company import (
 )
 from app.models.document import DocumentVersion, TenderDocument
 from app.models.match import TenderMatch
+from app.models.rag import ChunkEmbedding, DocumentChunk, TenderQuestion
 from app.models.source import Source
 from app.models.tender import Tender
 
@@ -23,4 +24,7 @@ __all__ = [
     "CompanyCertification",
     "CompanyExperience",
     "TenderMatch",
+    "DocumentChunk",
+    "ChunkEmbedding",
+    "TenderQuestion",
 ]

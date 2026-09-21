@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from pydantic import Field, SecretStr, field_validator
+from pydantic import Field, SecretStr, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 ENV_FILE = Path(__file__).resolve().parents[3] / ".env"
@@ -37,6 +37,24 @@ class Settings(BaseSettings):
         pattern=r"^[A-Za-z0-9][A-Za-z0-9._:/-]*$",
     )
     ai_max_input_chars: int = Field(default=60000, ge=128)
+    ai_embedding_model: str | None = Field(
+        default=None,
+        min_length=1,
+        max_length=255,
+        pattern=r"^[A-Za-z0-9][A-Za-z0-9._:/-]*$",
+    )
+    ai_embedding_dimensions: int = Field(default=1536, ge=1536, le=1536)
+    rag_chunk_size_chars: int = Field(default=2000, ge=256, le=8000)
+    rag_chunk_overlap_chars: int = Field(default=250, ge=0)
+    rag_embedding_batch_size: int = Field(default=16, ge=1, le=64)
+    rag_top_k: int = Field(default=5, ge=1, le=20)
+    rag_max_context_chars: int = Field(default=12000, ge=256, le=64000)
+
+    @model_validator(mode="after")
+    def validate_chunk_overlap(self):
+        if self.rag_chunk_overlap_chars >= self.rag_chunk_size_chars:
+            raise ValueError("Chunk overlap must be smaller than chunk size")
+        return self
 
     @field_validator("document_storage_dir")
     @classmethod

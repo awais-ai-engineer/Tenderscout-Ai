@@ -47,6 +47,7 @@ class MigrationTests(unittest.TestCase):
         self.assertIn("'0002'", sql)
         self.assertIn("'0003'", sql)
         self.assertIn("'0004'", sql)
+        self.assertIn("'0005'", sql)
 
     def test_postgresql_downgrade_sql_drops_child_table_first(self) -> None:
         output = StringIO()
@@ -133,3 +134,33 @@ class MigrationTests(unittest.TestCase):
         self.assertIn("company_snapshot JSONB", sql)
         self.assertIn("CONSTRAINT uq_matches_identity UNIQUE", sql)
         self.assertNotIn("ALTER TABLE", sql)
+
+    def test_0005_vector_extension_and_rag_tables(self):
+        output = StringIO()
+        with patch.dict(
+            os.environ, {"POSTGRES_PASSWORD": "offline-test-only"}, clear=True
+        ):
+            command.upgrade(
+                Config(str(CONFIG_FILE), output_buffer=output), "0004:0005", sql=True
+            )
+        sql = output.getvalue()
+        self.assertEqual(sql.count("CREATE TABLE"), 3)
+        self.assertIn("CREATE EXTENSION IF NOT EXISTS vector", sql)
+        self.assertIn("embedding VECTOR(1536)", sql)
+        self.assertIn("citations JSONB", sql)
+        self.assertIn("CONSTRAINT uq_questions_identity UNIQUE", sql)
+        self.assertNotIn("hnsw", sql.lower())
+        output = StringIO()
+        with patch.dict(
+            os.environ, {"POSTGRES_PASSWORD": "offline-test-only"}, clear=True
+        ):
+            command.downgrade(
+                Config(str(CONFIG_FILE), output_buffer=output), "0005:0004", sql=True
+            )
+        sql = output.getvalue()
+        self.assertLess(
+            sql.index("DROP TABLE chunk_embeddings"),
+            sql.index("DROP TABLE document_chunks"),
+        )
+        self.assertIn("DROP TABLE tender_questions", sql)
+        self.assertNotIn("DROP EXTENSION", sql)

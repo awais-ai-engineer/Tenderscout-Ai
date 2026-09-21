@@ -20,6 +20,9 @@ class ModelTests(unittest.TestCase):
                 "company_certifications",
                 "company_experience",
                 "tender_matches",
+                "document_chunks",
+                "chunk_embeddings",
+                "tender_questions",
             },
         )
         required = {
@@ -180,6 +183,62 @@ class ModelTests(unittest.TestCase):
                 "tender_matches": {"score"},
             }
         )
+        required.update(
+            {
+                "document_chunks": {
+                    "id",
+                    "document_version_id",
+                    "chunk_index",
+                    "chunker_version",
+                    "chunk_size",
+                    "chunk_overlap",
+                    "content_hash",
+                    "text",
+                    "start_char",
+                    "end_char",
+                    "created_at",
+                },
+                "chunk_embeddings": {
+                    "id",
+                    "chunk_id",
+                    "provider",
+                    "model",
+                    "dimensions",
+                    "embedding",
+                    "input_hash",
+                    "created_at",
+                },
+                "tender_questions": {
+                    "id",
+                    "document_version_id",
+                    "question",
+                    "question_hash",
+                    "embedding_provider",
+                    "embedding_model",
+                    "embedding_dimensions",
+                    "answer_provider",
+                    "answer_model",
+                    "chunker_version",
+                    "retrieval_version",
+                    "answer_prompt_version",
+                    "top_k",
+                    "max_context_chars",
+                    "context_hash",
+                    "retrieval_succeeded",
+                    "context_chunk_ids",
+                    "status",
+                    "citations",
+                    "created_at",
+                },
+            }
+        )
+        optional.update(
+            {
+                "document_chunks": set(),
+                "chunk_embeddings": set(),
+                "tender_questions": {"answer", "failure_reason"},
+            }
+        )
         for name, table in Base.metadata.tables.items():
             with self.subTest(table=name):
                 self.assertEqual(
@@ -203,6 +262,34 @@ class ModelTests(unittest.TestCase):
             constraints,
             {
                 "uq_sources_slug": ("slug",),
+                "uq_chunks_identity": (
+                    "document_version_id",
+                    "chunker_version",
+                    "chunk_index",
+                ),
+                "uq_embeddings_identity": (
+                    "chunk_id",
+                    "provider",
+                    "model",
+                    "dimensions",
+                    "input_hash",
+                ),
+                "uq_questions_identity": (
+                    "document_version_id",
+                    "question_hash",
+                    "embedding_provider",
+                    "embedding_model",
+                    "embedding_dimensions",
+                    "answer_provider",
+                    "answer_model",
+                    "chunker_version",
+                    "retrieval_version",
+                    "answer_prompt_version",
+                    "top_k",
+                    "max_context_chars",
+                    "context_hash",
+                    "retrieval_succeeded",
+                ),
                 "uq_capabilities_company_name": ("company_id", "name_key"),
                 "uq_matches_identity": (
                     "company_id",
