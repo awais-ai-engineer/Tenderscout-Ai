@@ -1,0 +1,17 @@
+{
+  "name": "Synthetic Matching Fixture Ltd",
+  "description": "Synthetic test data, not a real company.",
+  "country": "United Kingdom",
+  "website": "https://example.test/",
+  "employee_count": 80,
+  "annual_revenue": "5000000.00",
+  "currency": "GBP",
+  "years_in_business": 8,
+  "capabilities_complete": true,
+  "certifications_complete": true,
+  "experience_complete": false,
+  "financials_complete": true,
+  "capabilities": [{"name": "Azure cloud migration"}],
+  "certifications": [{"name": "ISO-27001", "issuer": "Synthetic issuer"}],
+  "experience": [{"title": "Government cloud migration", "description": "Synthetic Azure migration project"}]
+}

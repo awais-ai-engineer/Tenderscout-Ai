@@ -330,7 +330,7 @@ Docker/PostgreSQL is unavailable.
 ## Current limitations
 
 Only Find a Tender and Contracts Finder are integrated. There are no CRUD endpoints,
-RAG features, workers, frontend, or tender matching. Document processing is manual,
+RAG features, workers or frontend. Document processing is manual,
 Contracts Finder PDF-only, and bounded to one recent API batch. There is no OCR,
 DOCX/Excel/ZIP extraction, scheduling, or cloud document storage.
 
@@ -426,5 +426,124 @@ Tests use a synthetic source/output fixture, a test-only fake client, and the re
 SDK with mocked HTTP transport. Prepare-only is exercised against a SQLite fixture;
 this does not verify live PostgreSQL. Live PostgreSQL migration/analysis and a real
 LLM call remain pending until a database, extracted version and API credentials are
-available. No RAG, embeddings, company matching, scoring or proposal generation is
-implemented.
+available. No RAG, embeddings or proposal generation is implemented.
+Company matching is described below.
+
+## Company profiles and deterministic matching
+
+Apply revision `0004` with `alembic -c backend/alembic.ini upgrade head` from
+the repository root. Run these commands with `backend` on `PYTHONPATH`, as above:
+
+```powershell
+python -m app.company create --file company.json
+python -m app.company show --company-id 1
+python -m app.match --company-id 1 --analysis-id 5
+```
+
+Import JSON uses the structure in
+[`backend/tests/fixtures/company_profile.json`](backend/tests/fixtures/company_profile.json),
+which is synthetic test data and is never seeded automatically. `name` is required;
+optional business fields default to `null`. Monetary amounts are decimal strings,
+currencies are three uppercase letters, dates are ISO `YYYY-MM-DD`, and website
+URLs must use HTTP(S) without credentials. Unknown fields, negative quantities,
+reversed dates and duplicate capability names (casefolded, normalized whitespace)
+are rejected. Imports are bounded to 2 MB and commit the parent and children together.
+`show` explicitly prints the profile; `match` prints only IDs, status, score,
+coverage, result counts and whether the match was reused. Errors omit input bodies
+and database/transport messages.
+
+All four completeness flags default to false: `capabilities_complete`,
+`certifications_complete`, `experience_complete`, `financials_complete`.
+True means the company asserts that collection/data is complete enough for matching;
+it is not independent verification. Missing certification, capability or experience
+rows otherwise mean **unknown**, not failure. A missing financial amount or currency
+remains unknown even when `financials_complete` is true.
+
+Revision `0004` adds only these tables; revisions `0001`–`0003` remain unchanged:
+
+| Model | Stored fields |
+| --- | --- |
+| CompanyProfile | ID, name, description, country, website, employee count, annual revenue (`Numeric(18,2)`), currency, years in business, four completeness flags, created/updated timestamps |
+| CompanyCapability | ID, company FK, name, normalized name key, optional description, creation timestamp; unique company/name key |
+| CompanyCertification | ID, company FK, name, optional issuer/identifier/valid-from/valid-until dates, creation timestamp |
+| CompanyExperience | ID, company FK, optional title/client/description/country/contract value/currency/start/end dates, creation timestamp; import requires some identifying text |
+| TenderMatch | ID, company/analysis FKs, matcher version, eligibility status, nullable integer score, coverage, company snapshot, blocker/matched/unmatched/unknown/capability/certification/experience/risk JSONB lists, creation timestamp |
+
+Company child collections cascade on deletion. Matches restrict deletion of both
+their company and analysis to retain audit history. PostgreSQL timestamp columns
+are timezone-aware. JSONB has a JSON variant for SQLite tests. Matches have no
+`updated_at`; the service never updates prior matches or analyses. This is service
+append-only behavior, not a database trigger preventing privileged manual edits.
+
+The unique match identity is `(company_id, tender_analysis_id, matcher_version)`.
+`MATCHER_VERSION = "v1"`; result-affecting rule changes must bump it. An exact repeat
+reuses its result; another company, analysis or matcher version creates a new row.
+Profiles have a create/show workflow, with no update command: import a new profile
+for changed assertions. Direct database edits do not invalidate existing matches.
+Each result stores its full company snapshot so old comparisons remain interpretable.
+The service closes its read session before comparison, then opens a short insert
+transaction, rechecks identity and handles uniqueness conflicts. PostgreSQL race
+behavior still needs live verification.
+
+The matcher requires a completed, supported-schema analysis and performs no network
+calls. It needs no OpenAI API key and adds no LLM explanation layer. Rules use the
+existing tender evidence quotations, preserving them verbatim in every result:
+
+- Certification matching recognizes only obvious ISO numeric families (for example,
+  ISO 9001, ISO-9001 and ISO 9001:2015). Explicit mandatory holding requirements can
+  match an asserted holding. Missing dates never establish validity. Explicit
+  `valid`/`current` requirements need both dates covering the **UTC analysis creation
+  date**, not today's date. Expired/not-yet-valid records establish a blocker only
+  when the certification inventory is complete. Recheck validity before acting.
+- Years compare only simple minimum/at-least experience or in-business clauses
+  against known years in business; specialist experience clauses remain unknown.
+- Country compares only explicit supplier-establishment clauses. The small v1
+  parser recognizes UK/United Kingdom/GB and Pakistan/PK company countries;
+  other company-country names remain unknown. Delivery location is never used
+  as supplier eligibility. Other country clauses need review.
+- Financial rules compare obvious minimum annual turnover with asserted annual
+  revenue only in the same currency (GBP/£, USD or EUR). Complex clauses, ambiguous
+  currency symbols and missing/different currencies remain unknown. No FX lookup.
+- Capability and experience alignment uses lowercase ASCII word tokens, removes
+  a small explicit stop-word list and requires at least two remaining requirement
+  tokens. At least **60%** must occur in one capability's name/description or one
+  experience record's title/description/country/client. Experience is selected by
+  the word `experience` in the evidence. This is lexical alignment, not semantic
+  equivalence, project quality, successful delivery or proof of compliance.
+  Numeric, negative and explicit mandatory technical clauses need stronger rules
+  or human review. Unsupported clauses remain unknown.
+- Required documents remain unknown because there is no document inventory.
+  Holding ISO certification does not prove a certificate file exists. Submission
+  instructions and evaluation criteria require manual review; they are not
+  inferred from company facts. Analysis ambiguities retain their original evidence.
+
+**Eligibility:** `ineligible` means at least one safely parsed hard requirement
+contradicts the asserted company facts (including complete certification absence).
+`eligible` means at least one hard requirement exists and every identified hard
+requirement matched. Otherwise it is `uncertain`. Unparsed eligibility/financial
+clauses, document requirements, submission instructions and unsupported mandatory
+technical constraints remain unresolved hard requirements, preventing `eligible`.
+This is an assessment against supplied data, not independently verified legal status.
+`unmatched` means a supported contradiction or a lexical gap in an asserted complete
+list; `unknown` means missing data or an unsupported comparison. Lexical gaps never
+become hard blockers.
+
+**Score:** an optional integer heuristic alignment score, **not win probability,
+AI confidence or legal eligibility certainty**. Each comparable non-hard item has
+equal weight: `round_half_up(100 * matched_non_hard / comparable_non_hard)`.
+Unknowns and hard requirements do not enter that denominator; no comparable soft
+items means `null`. A blocker can coexist with a score of 100.
+
+**Coverage:** `(matched + unmatched) / all considered requirements`, rounded to
+six decimal places, or zero when none exist. Considered items are eligibility,
+financial, technical, required-document, submission and evaluation requirements;
+summary, dates, contacts and ambiguity notes are excluded. Unknowns lower coverage
+without counting as score failures. A sparse profile can score 100 with low coverage;
+always inspect coverage, blockers and unknowns together.
+
+Tests exercise strict imports, rules, evidence retention, scores, SQLite CLI flows,
+transactions, uniqueness, snapshots and deletion, plus offline PostgreSQL migration
+rendering. SQLite is not live PostgreSQL verification. Live migration, matching
+idempotency and concurrent insertion verification remain pending when PostgreSQL
+is unavailable. Human review is required; matching makes no bid/no-bid decision.
+There is no RAG, automatic proposal generation or automated bidding.

@@ -15,6 +15,11 @@ class ModelTests(unittest.TestCase):
                 "tender_documents",
                 "document_versions",
                 "tender_analyses",
+                "company_profiles",
+                "company_capabilities",
+                "company_certifications",
+                "company_experience",
+                "tender_matches",
             },
         )
         required = {
@@ -103,6 +108,78 @@ class ModelTests(unittest.TestCase):
                 "risks_or_ambiguities",
             },
         }
+        required.update(
+            {
+                "company_profiles": {
+                    "id",
+                    "name",
+                    "capabilities_complete",
+                    "certifications_complete",
+                    "experience_complete",
+                    "financials_complete",
+                    "created_at",
+                    "updated_at",
+                },
+                "company_capabilities": {
+                    "id",
+                    "company_id",
+                    "name",
+                    "name_key",
+                    "created_at",
+                },
+                "company_certifications": {"id", "company_id", "name", "created_at"},
+                "company_experience": {"id", "company_id", "created_at"},
+                "tender_matches": {
+                    "id",
+                    "company_id",
+                    "tender_analysis_id",
+                    "matcher_version",
+                    "eligibility_status",
+                    "coverage_ratio",
+                    "company_snapshot",
+                    "hard_blockers",
+                    "matched_requirements",
+                    "unmatched_requirements",
+                    "unknown_requirements",
+                    "capability_matches",
+                    "certification_matches",
+                    "experience_matches",
+                    "risks",
+                    "created_at",
+                },
+            }
+        )
+        optional.update(
+            {
+                "company_profiles": {
+                    "description",
+                    "country",
+                    "website",
+                    "employee_count",
+                    "annual_revenue",
+                    "currency",
+                    "years_in_business",
+                },
+                "company_capabilities": {"description"},
+                "company_certifications": {
+                    "issuer",
+                    "identifier",
+                    "valid_from",
+                    "valid_until",
+                },
+                "company_experience": {
+                    "title",
+                    "client",
+                    "description",
+                    "country",
+                    "contract_value",
+                    "currency",
+                    "started_at",
+                    "completed_at",
+                },
+                "tender_matches": {"score"},
+            }
+        )
         for name, table in Base.metadata.tables.items():
             with self.subTest(table=name):
                 self.assertEqual(
@@ -126,6 +203,12 @@ class ModelTests(unittest.TestCase):
             constraints,
             {
                 "uq_sources_slug": ("slug",),
+                "uq_capabilities_company_name": ("company_id", "name_key"),
+                "uq_matches_identity": (
+                    "company_id",
+                    "tender_analysis_id",
+                    "matcher_version",
+                ),
                 "uq_tenders_source_external_id": ("source_id", "external_id"),
                 "uq_tenders_source_url": ("source_id", "source_url"),
                 "uq_documents_tender_url": ("tender_id", "source_url"),
@@ -177,7 +260,12 @@ class ModelTests(unittest.TestCase):
                         self.assertTrue(column.type.timezone)
                         if not column.nullable:
                             self.assertEqual(str(column.server_default.arg), "now()")
-            if table.name not in {"document_versions", "tender_analyses"}:
+            if table.name in {
+                "sources",
+                "tenders",
+                "tender_documents",
+                "company_profiles",
+            }:
                 self.assertEqual(str(table.c.updated_at.onupdate.arg), "now()")
         self.assertIsNone(Tender.__table__.c.last_seen_at.onupdate)
         self.assertEqual(str(Source.__table__.c.is_active.server_default.arg), "true")
