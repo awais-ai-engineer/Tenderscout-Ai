@@ -1,0 +1,11 @@
+Synthetic tender fixture. Not a real procurement notice.
+Example Council requests supply of 20 laptops.
+Bidders must hold ISO 9001 certification.
+Submit a signed declaration.
+Laptops must include 16 GB RAM.
+Annual turnover must be at least GBP 100,000.
+Submit via the procurement portal.
+Evaluation: price 60%; quality 40%.
+Deadline: 30 October 2026 at 12:00 UK time.
+Contact: Procurement Team, Example Council, procurement@example.test, 01234 000000.
+Delivery is described as both 10 and 20 working days.

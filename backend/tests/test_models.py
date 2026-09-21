@@ -9,7 +9,13 @@ class ModelTests(unittest.TestCase):
     def test_tables_and_nullability(self) -> None:
         self.assertEqual(
             set(Base.metadata.tables),
-            {"sources", "tenders", "tender_documents", "document_versions"},
+            {
+                "sources",
+                "tenders",
+                "tender_documents",
+                "document_versions",
+                "tender_analyses",
+            },
         )
         required = {
             "sources": {
@@ -50,6 +56,17 @@ class ModelTests(unittest.TestCase):
                 "extraction_status",
                 "created_at",
             },
+            "tender_analyses": {
+                "id",
+                "document_version_id",
+                "analysis_schema_version",
+                "provider",
+                "model",
+                "prompt_version",
+                "input_hash",
+                "status",
+                "created_at",
+            },
         }
         optional = {
             "sources": {"last_scraped_at"},
@@ -70,6 +87,21 @@ class ModelTests(unittest.TestCase):
                 "media_type",
             },
             "document_versions": {"media_type", "extracted_text", "extraction_error"},
+            "tender_analyses": {
+                "raw_response",
+                "failure_reason",
+                "summary",
+                "summary_evidence",
+                "eligibility_requirements",
+                "required_documents",
+                "technical_requirements",
+                "financial_requirements",
+                "submission_instructions",
+                "evaluation_criteria",
+                "important_dates",
+                "contact_information",
+                "risks_or_ambiguities",
+            },
         }
         for name, table in Base.metadata.tables.items():
             with self.subTest(table=name):
@@ -99,6 +131,14 @@ class ModelTests(unittest.TestCase):
                 "uq_documents_tender_url": ("tender_id", "source_url"),
                 "uq_documents_tender_source_id": ("tender_id", "source_document_id"),
                 "uq_versions_document_hash": ("document_id", "content_hash"),
+                "uq_analyses_identity": (
+                    "document_version_id",
+                    "analysis_schema_version",
+                    "provider",
+                    "model",
+                    "prompt_version",
+                    "input_hash",
+                ),
             },
         )
         self.assertEqual(
@@ -137,7 +177,7 @@ class ModelTests(unittest.TestCase):
                         self.assertTrue(column.type.timezone)
                         if not column.nullable:
                             self.assertEqual(str(column.server_default.arg), "now()")
-            if table.name != "document_versions":
+            if table.name not in {"document_versions", "tender_analyses"}:
                 self.assertEqual(str(table.c.updated_at.onupdate.arg), "now()")
         self.assertIsNone(Tender.__table__.c.last_seen_at.onupdate)
         self.assertEqual(str(Source.__table__.c.is_active.server_default.arg), "true")

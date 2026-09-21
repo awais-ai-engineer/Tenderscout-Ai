@@ -17,6 +17,7 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.db.base import Base
 
 if TYPE_CHECKING:
+    from app.models.analysis import TenderAnalysis
     from app.models.tender import Tender
 
 
@@ -93,3 +94,6 @@ class DocumentVersion(Base):
         DateTime(timezone=True), server_default=func.now()
     )
     document: Mapped[TenderDocument] = relationship(back_populates="versions")
+    analyses: Mapped[list["TenderAnalysis"]] = relationship(
+        back_populates="document_version", passive_deletes="all"
+    )

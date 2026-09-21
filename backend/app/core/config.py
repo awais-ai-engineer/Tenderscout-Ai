@@ -29,14 +29,23 @@ class Settings(BaseSettings):
     document_max_bytes: int = Field(default=26214400, gt=0)
     document_max_pages: int = Field(default=500, gt=0)
 
+    openai_api_key: SecretStr | None = None
+    ai_model: str | None = Field(
+        default=None,
+        min_length=1,
+        max_length=255,
+        pattern=r"^[A-Za-z0-9][A-Za-z0-9._:/-]*$",
+    )
+    ai_max_input_chars: int = Field(default=60000, ge=128)
+
     @field_validator("document_storage_dir")
     @classmethod
     def resolve_storage_dir(cls, value: Path) -> Path:
         return (ENV_FILE.parent / value).resolve()
 
-    @field_validator("postgres_password", "redis_password")
+    @field_validator("postgres_password", "redis_password", "openai_api_key")
     @classmethod
-    def validate_password(cls, value: SecretStr | None) -> SecretStr | None:
+    def validate_secret(cls, value: SecretStr | None) -> SecretStr | None:
         if value is not None and not value.get_secret_value().strip():
-            raise ValueError("Password must not be empty")
+            raise ValueError("Secret must not be empty")
         return value

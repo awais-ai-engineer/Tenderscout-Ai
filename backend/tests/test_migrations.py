@@ -45,6 +45,7 @@ class MigrationTests(unittest.TestCase):
         self.assertNotIn("offline-test-only", sql)
         self.assertIn("'0001'", sql)
         self.assertIn("'0002'", sql)
+        self.assertIn("'0003'", sql)
 
     def test_postgresql_downgrade_sql_drops_child_table_first(self) -> None:
         output = StringIO()
@@ -54,6 +55,10 @@ class MigrationTests(unittest.TestCase):
         ):
             command.downgrade(config, "head:base", sql=True)
         sql = output.getvalue()
+        self.assertLess(
+            sql.index("DROP TABLE tender_analyses"),
+            sql.index("DROP TABLE document_versions"),
+        )
         self.assertLess(
             sql.index("DROP TABLE document_versions"),
             sql.index("DROP TABLE tender_documents"),
@@ -80,4 +85,19 @@ class MigrationTests(unittest.TestCase):
         self.assertIn("CREATE TABLE document_versions", sql)
         self.assertNotIn("CREATE TABLE sources", sql)
         self.assertNotIn("CREATE TABLE tenders", sql)
+        self.assertNotIn("ALTER TABLE", sql)
+
+    def test_0003_upgrade_only_creates_analysis_schema(self) -> None:
+        output = StringIO()
+        with patch.dict(
+            os.environ, {"POSTGRES_PASSWORD": "offline-test-only"}, clear=True
+        ):
+            command.upgrade(
+                Config(str(CONFIG_FILE), output_buffer=output), "0002:0003", sql=True
+            )
+        sql = output.getvalue()
+        self.assertEqual(sql.count("CREATE TABLE"), 1)
+        self.assertIn("CREATE TABLE tender_analyses", sql)
+        self.assertIn("eligibility_requirements JSONB", sql)
+        self.assertIn("CONSTRAINT uq_analyses_identity UNIQUE", sql)
         self.assertNotIn("ALTER TABLE", sql)

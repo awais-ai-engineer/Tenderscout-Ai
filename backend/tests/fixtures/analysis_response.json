@@ -1,0 +1,13 @@
+{
+  "summary": "Example Council seeks 20 laptops.",
+  "summary_evidence": ["Example Council requests supply of 20 laptops."],
+  "eligibility_requirements": [{"value": "ISO 9001 certification is mandatory.", "evidence": "Bidders must hold ISO 9001 certification."}],
+  "required_documents": [{"value": "Signed declaration", "evidence": "Submit a signed declaration."}],
+  "technical_requirements": [{"value": "16 GB RAM", "evidence": "Laptops must include 16 GB RAM."}],
+  "financial_requirements": [{"value": "Annual turnover of at least GBP 100,000", "evidence": "Annual turnover must be at least GBP 100,000."}],
+  "submission_instructions": [{"value": "Submit via the procurement portal", "evidence": "Submit via the procurement portal."}],
+  "evaluation_criteria": [{"criterion": "Price", "weighting": "60%", "notes": "Quality is weighted at 40%.", "evidence": "Evaluation: price 60%; quality 40%."}],
+  "important_dates": [{"label": "Deadline", "date": "30 October 2026 at 12:00 UK time", "notes": null, "evidence": "Deadline: 30 October 2026 at 12:00 UK time."}],
+  "contact_information": [{"name": "Procurement Team", "organization": "Example Council", "email": "procurement@example.test", "phone": "01234 000000", "role": null, "evidence": "Contact: Procurement Team, Example Council, procurement@example.test, 01234 000000."}],
+  "risks_or_ambiguities": [{"value": "The delivery period is contradictory.", "evidence": "Delivery is described as both 10 and 20 working days."}]
+}

@@ -2,14 +2,15 @@
 
 TenderScout AI is intended to help teams discover and evaluate public tenders.
 The backend currently includes FastAPI, environment configuration, PostgreSQL
-models and migrations for sources, tenders and documents, and Redis connection settings.
+models and migrations for sources, tenders, documents and analyses, and Redis settings.
 
 ## Structure
 
 - `backend/app/api`: HTTP routes.
 - `backend/app/core`: environment configuration.
 - `backend/app/db`: SQLAlchemy engine setup using psycopg.
-- `backend/app/models`: source, tender, document and version ORM entities.
+- `backend/app/models`: source, tender, document, version and analysis ORM entities.
+- `backend/app/ai`: structured output schemas, versioned prompt and OpenAI client.
 - `backend/app/schemas`: Pydantic create/read data contracts.
 - `backend/app/scrapers`: public listing fetching and source-specific parsing.
 - `backend/app/services`: tender ingestion, document storage and PDF extraction.
@@ -107,7 +108,7 @@ SQLAlchemy updates; direct SQL writers must set it themselves. `last_seen_at`
 must be set explicitly when an opportunity is observed again.
 
 On a disposable database, test reversal with the commands below. Downgrading to
-base deletes all four tables and their records:
+base deletes all five tables and their records:
 
 ```text
 python -m alembic -c backend/alembic.ini downgrade base
@@ -329,6 +330,101 @@ Docker/PostgreSQL is unavailable.
 ## Current limitations
 
 Only Find a Tender and Contracts Finder are integrated. There are no CRUD endpoints,
-AI/RAG features, workers, frontend, or tender matching. Document processing is manual,
+RAG features, workers, frontend, or tender matching. Document processing is manual,
 Contracts Finder PDF-only, and bounded to one recent API batch. There is no OCR,
 DOCX/Excel/ZIP extraction, scheduling, or cloud document storage.
+
+## Structured tender analysis
+
+Analysis runs manually on a single `DocumentVersion` with `extraction_status=extracted`
+and nonblank text. Empty/failed extractions are skipped; missing IDs are errors.
+Apply migration `0003`, then set `OPENAI_API_KEY` and `AI_MODEL` in the root `.env`
+or environment. The key is a redacted `SecretStr`. AI settings are optional for
+normal backend startup and document processing. There is no default model: choose
+an account-accessible model supporting Responses structured outputs, preferably
+a pinned model snapshot when reproducibility matters.
+
+With `PYTHONPATH=backend`:
+
+```text
+python -m alembic -c backend/alembic.ini upgrade head
+python -m app.analyze --document-version-id 12 --prepare-only
+python -m app.analyze --document-version-id 12
+```
+
+Replace `12` with an existing extracted version ID. Prepare-only requires database
+access but no AI credentials; it reports character count, hash and truncation,
+without provider calls, analysis writes or printing document text. Processing
+reports document version ID, status, analysis ID, model and `reused`. Failures return
+exit code 1; ineligible extractions return `skipped` with exit code 0.
+
+The small `StructuredLLMClient` protocol has one implementation, using the official
+OpenAI Python SDK's [Responses structured parsing](https://developers.openai.com/api/docs/guides/structured-outputs).
+It sends only the prepared text and versioned extraction instructions, requests
+`store=false`, disables SDK retries and provider-side input truncation, uses a
+60-second request timeout and an 8,000-output-token ceiling. No tools are supplied.
+The API endpoint is fixed to OpenAI; environment proxies and redirects are disabled.
+The SDK's HTTP dependency is separate from the existing source download client.
+
+Prompt version **v1** treats document contents as untrusted data, forbids invented
+requirements, qualifications, dates or weights, and preserves uncertainty. Analysis
+schema version **v1** rejects extra fields and type coercions. Output fields are:
+
+- `summary`: nullable text, with `summary_evidence` quotations when present.
+- `eligibility_requirements`, `required_documents`, `technical_requirements`,
+  `financial_requirements`, `submission_instructions`, `risks_or_ambiguities`:
+  lists of `{value, evidence}`.
+- `evaluation_criteria`: `{criterion, weighting, notes, evidence}` items.
+- `important_dates`: `{label, date, notes, evidence}` items; dates retain source wording.
+- `contact_information`: `{name, organization, email, phone, role, evidence}` items.
+
+Absent facts use null/empty lists. Evidence is limited to 400 characters per item,
+and each quote must occur in a retained input section after whitespace normalization.
+Quotes from omitted text or across the truncation gap are rejected. Summary evidence
+is limited to ten snippets; other lists to 100 items each. Matching a quote does
+**not** verify that it supports the claim or that the extraction is complete.
+This is structured extraction, not legal advice. Results require human review;
+no model-quality benchmark or accuracy claim is provided.
+
+Input preparation converts CRLF/CR to LF, removes NULs and strips outer whitespace,
+preserving internal paragraphs and Unicode. `AI_MAX_INPUT_CHARS` defaults to 60,000
+(minimum 128). Longer input keeps equal beginning/end portions, giving the beginning
+the extra character when needed, with `\n\n... [TRUNCATED BY TENDERSCOUT] ...\n\n`
+between them. The marker counts toward the limit. SHA-256 covers the exact UTF-8
+prepared text sent as the user message, including the marker, not the binary hash,
+IDs, timestamps or system prompt. This is a character bound, not a token estimate;
+model context limits may still reject a request. There is no chunking or retrieval.
+
+`tender_analyses` stores the document-version FK, schema/provider/model/prompt/input
+identity, status, raw response, validated fields, optional failure reason and an
+aware creation timestamp. Lists use PostgreSQL JSONB with SQLAlchemy JSON for SQLite
+domain tests. The six identity fields have one unique constraint, including failed
+results. Exact repeats reuse the row without a provider call. Different prompt,
+schema, provider, model, prepared text or document version creates a new row; the
+service never updates existing analyses. Model aliases may change upstream behavior;
+alias drift is not detected when reusing an existing result.
+
+Failures preserve a concise reason without transport messages, headers or secrets.
+Structured columns remain SQL NULL on failure. Successful OpenAI responses retain
+the normalized parsed JSON separately from structured columns. Invalid output is
+retained when returned to the service, bounded to 100,000 characters; SDK-level
+parsing errors, refusals and transport failures retain a reason without the provider
+body. Failed results are deliberately reused too: no retry/force mode is implemented.
+Changing a version label solely to retry is discouraged because labels describe
+actual prompt/schema changes. A future retry policy must preserve prior failures.
+NULs and invalid Unicode are rejected in validated fields and escaped in raw audit
+text so a malformed response cannot break PostgreSQL text/JSONB storage. Bump the
+prompt or schema version whenever its instructions or output contract change.
+
+All reads close before the provider call. A short final transaction locks the
+document version, rechecks identity and inserts the result. Concurrent callers can
+both incur a provider call, but reuse the first committed result; PostgreSQL locking
+still needs live verification. Analysis history restricts deleting its document
+version, including deletion through a logical document's version cascade.
+
+Tests use a synthetic source/output fixture, a test-only fake client, and the real
+SDK with mocked HTTP transport. Prepare-only is exercised against a SQLite fixture;
+this does not verify live PostgreSQL. Live PostgreSQL migration/analysis and a real
+LLM call remain pending until a database, extracted version and API credentials are
+available. No RAG, embeddings, company matching, scoring or proposal generation is
+implemented.
