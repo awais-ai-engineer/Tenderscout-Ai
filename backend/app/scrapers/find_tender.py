@@ -10,7 +10,12 @@ from bs4 import BeautifulSoup, Tag
 from pydantic import ValidationError
 
 from app.schemas.source import SourceCreate
-from app.scrapers.errors import InvalidRecord, SourceFetchError, SourceParseError
+from app.scrapers.errors import (
+    InvalidRecord,
+    SourceFetchError,
+    SourceParseError,
+    TransientSourceFetchError,
+)
 from app.scrapers.records import ParsedListing, ScrapedTender
 
 SOURCE = SourceCreate(
@@ -70,9 +75,12 @@ def fetch_listing(client: httpx.Client) -> str:
             type(error).__name__,
             status,
         )
-        raise SourceFetchError(
-            "Public source request failed; see HTTP failure log"
-        ) from None
+        failure = (
+            TransientSourceFetchError
+            if isinstance(error, (httpx.TimeoutException, httpx.ConnectError))
+            else SourceFetchError
+        )
+        raise failure("Public source request failed; see HTTP failure log") from None
     if "text/html" not in response.headers.get("content-type", "").lower():
         raise SourceFetchError("Expected an HTML listing response")
     return response.text

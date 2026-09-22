@@ -3,7 +3,7 @@
 TenderScout AI is intended to help teams discover and evaluate public tenders.
 The backend currently includes FastAPI, environment configuration, PostgreSQL
 models and migrations for tenders, document analysis, company matching and document-scoped
-RAG, and Redis settings.
+RAG, revision history, and a Redis/Celery processing pipeline.
 
 ## Structure
 
@@ -18,7 +18,8 @@ RAG, and Redis settings.
 - `backend/app/services`: tender ingestion, document storage and PDF extraction.
 - `backend/alembic`: versioned database migrations.
 - `backend/app/main.py`: application and resource lifecycle.
-- `compose.yaml`: local PostgreSQL and Redis services.
+- `backend/app/worker`: Celery configuration, tasks and process lifecycle.
+- `compose.yaml`: local PostgreSQL/Redis and optional worker/Beat services.
 
 ## Development setup
 
@@ -38,7 +39,7 @@ On Linux/macOS, activate with `source .venv/bin/activate` and copy with
 Replace the example PostgreSQL password in `.env`, then start:
 
 ```text
-docker compose up -d --wait
+docker compose up -d --wait postgres redis
 python -m alembic -c backend/alembic.ini upgrade head
 python -m uvicorn app.main:app --app-dir backend --reload
 ```
@@ -51,11 +52,11 @@ input dictionaries.
 
 `POSTGRES_HOST`, `POSTGRES_PORT`, `POSTGRES_DB`, `POSTGRES_USER`, and
 `POSTGRES_PASSWORD` configure PostgreSQL. `REDIS_HOST`, `REDIS_PORT`, `REDIS_DB`,
-and optional `REDIS_PASSWORD` configure Redis. Redis has no client or workload yet.
+and optional `REDIS_PASSWORD` configure Redis, which now brokers Celery tasks.
 
 Compose binds both services to loopback for local development. Its Redis service
-is unauthenticated and disposable; `REDIS_PASSWORD` is for a separately configured
-authenticated deployment. PostgreSQL data uses a named volume. Changing `.env`
+is unauthenticated; `REDIS_PASSWORD` is for a separately configured
+authenticated deployment. PostgreSQL and Redis AOF data use named volumes. Changing `.env`
 credentials does not change credentials in an already initialized database.
 This Compose file is not a production deployment configuration.
 
@@ -810,3 +811,185 @@ concurrent writes and database idempotency verification remain **pending** while
 PostgreSQL/Docker is unavailable. There are no claims of complete legal-change
 detection or document removal: no point-in-time tender-wide document manifest exists.
 Results depend on previously captured metadata and completed structured analyses.
+
+## Automated processing and scheduling (Task 10)
+
+Celery **5.6** with its Redis extra runs thin wrappers around the existing services.
+Redis is the broker. PostgreSQL is the authoritative operational history; Celery
+results are ignored and no result backend is required. An optional
+`CELERY_RESULT_BACKEND` accepts a Redis/rediss URL, but does not replace the audit.
+`CELERY_BROKER_URL` defaults to the existing Redis settings with an escaped password.
+Both overrides are secret settings. Do not dump raw Celery configuration or URLs.
+
+Migration **0007** adds:
+
+| Table | Fields |
+| --- | --- |
+| `pipeline_runs` | ID, run type (`source_pipeline`), source slug, manual/scheduled trigger, status, root Celery task ID, numeric summary, bounded failure reason, started/finished/created timestamps |
+| `pipeline_stage_runs` | ID, run FK, optional parent-stage FK, stage, entity type/ID, status, attempt count, numeric metrics, bounded scope IDs, configuration fingerprint, failure reason, started/finished/created timestamps |
+
+Timestamps are timezone-aware; metrics/summary/scope use PostgreSQL JSONB and SQLite
+JSON. FKs restrict audit deletion. A partial unique index permits only one queued
+or running run per source. Manual and scheduled triggers use the same path and
+return the existing active run on collision; this is not a Redis lock. A unique
+`(pipeline_run_id, stage, entity_type, entity_id)` identifies each logical stage.
+Stages use one row with an increasing attempt counter (maximum four), not separate
+attempt-history rows. Source stages use entity type `source` and ID 0; the run stores
+the actual source slug. Task messages contain only a stage ID, or a source slug for
+the lightweight Beat trigger. No source text, vectors or provider output is queued.
+
+**Work and bounds.** Ingestion uses the existing two adapters and returns affected
+tender IDs through an optional internal collector populated only after commit.
+Existing public counters and Task 9 revision capture remain intact. The default
+limit is 100 tenders per batch (`PIPELINE_MAX_TENDERS`, maximum 500); truncation is
+reported as skipped/limited. There is no whole-database rescan or pagination crawler.
+
+For Contracts Finder, the documents stage fetches the current bounded source batch,
+filters document records to those affected tender IDs, and uses the existing secure
+PDF processing service. It processes at most `PIPELINE_MAX_DOCUMENTS` records and
+selects at most that many latest extracted, nonblank document versions from those
+tenders (default 100, maximum 500). Find a Tender documents are explicitly skipped.
+Metadata-discovery or per-document failures remain visible in stage counters and
+make the run partial while eligible documents continue. Fetching the listing again
+can miss a notice that moved out of that source batch; this is not a point-in-time
+document manifest. Bounds are reported, not presented as complete source coverage.
+
+Analysis and indexing are independent children of document processing. Both load
+their input from the database and close provider clients reliably. AI configuration
+is checked at execution, so missing API credentials do not prevent worker startup.
+An eligible invoked AI stage with missing configuration is **failed**, not silently
+successful. Ineligible text is skipped before client creation. Task 6 exact failed
+analysis identities remain failed and are reused without another provider call.
+Indexing can still succeed independently and reuses Task 8 chunks/embeddings.
+
+Previously completed pipeline analysis/indexing stages for the same version and
+processing configuration are not enqueued again. A fingerprint includes relevant
+nonsecret settings and algorithm versions; a worker configuration change after
+enqueue fails clearly instead of mixing identities. Use the same settings across
+workers. Work performed manually before its first pipeline visit still reuses the
+existing domain identities. Missing/failed local follow-up stages are eligible on
+later visits. Previously skipped local work is not automatically reopened for an
+unchanged configuration, and old superseded document versions are not backfilled.
+
+Completed analyses create independent matching and change-comparison stages.
+`AUTO_MATCH_ENABLED=false` skips matching by default. Opt-in matching considers the
+first `AUTO_MATCH_MAX_COMPANIES` company IDs in ascending order (default 100, maximum
+1000), reporting whether the cap omitted companies. Invalid company data does not
+block other companies. Existing match identities are reused. Profiles remain current
+unversioned rows; adding companies alone does not backfill already completed stages.
+
+Changes select only the closest previous compatible completed analysis of the same
+logical document, ordered by `(downloaded_at, version ID)`, then highest analysis ID
+as a deterministic same-version tie-break. Schema/provider/model/prompt must match.
+No previous comparable analysis means skipped. Existing metadata changesets are not
+duplicated, and document comparisons reuse Task 9 identities. No all-pairs history,
+automatic Q&A, notifications, bid decisions or new sources are introduced.
+
+**Status and delivery.** Runs transition queued → running → completed/partial/failed:
+
+- Completed: all planned work is completed/skipped, with no failed counters.
+- Partial: downstream failures or record/document failures occurred, while safe work
+  continued. A completed batch stage can have failed entity counters; these prevent
+  the run from becoming completed.
+- Failed: required ingestion could not execute, its publication failed, or explicit
+  maintenance declared the run stale.
+
+Stage transitions are queued → running → completed/skipped/failed. A retry returns
+running to queued and increments the attempt on its next claim. Run-row locks guard
+claims/finalization. Parent completion and creation of queued child rows are atomic;
+publication happens after commit. Finalization reads database stage state, not Celery
+callback success. A duplicate delivery cannot claim running or terminal work; a
+terminal parent can redispatch still-queued children. Domain service identities also
+protect repeated writes. This is **not exactly-once execution** or an atomic
+database/broker transaction: a crash between commit and publication can strand work.
+
+JSON is the only accepted task/result serialization; pickle is not enabled. Queues:
+`ingestion` for source fetch/ingest, `documents` for discovery/PDF work, `ai` for
+analysis/embeddings, `default` for triggers/matching/changes. Prefetch is 1. Late
+acknowledgements are enabled; failure acknowledgements remain enabled and
+`task_reject_on_worker_lost=false` avoids repeated hard-crash delivery loops.
+Running-stage duplicates are not automatically taken over after a crash: explicit
+stale maintenance and a new run are required. See Celery's
+[delivery semantics](https://docs.celeryq.dev/en/stable/userguide/tasks.html).
+
+Retries use Celery's bounded exponential backoff (30-second factor, 180-second cap,
+jitter), at most three retries/four attempts. Retryable types are SQLAlchemy
+OperationalError, known source timeout/connection failures, and non-persisted
+embedding timeout/connection failures. Source adapters expose a sanitized transient
+subtype while preserving their existing base exception. No HTTP status, including
+403, is retried; neither are validation/schema errors, identity conflicts or stored
+failed analyses. Document service failures are recorded rather than blindly retrying
+the whole PDF batch. Broker startup/publication retries are also bounded to three.
+Database failures can prevent the final audit write; logs contain a fixed diagnostic
+and the unfinalized record remains for maintenance. Raw exceptions, SQL values,
+provider bodies and credentials are not persisted in pipeline metrics/errors.
+
+Engines are lazy and reused per worker process. Fork hooks discard inherited pools
+without closing parent connections; shutdown disposes the local engine. No provider
+client is created at import time. Pipeline wrappers hold no outer transaction around
+source fetches, PDF download/extraction, LLM or embedding calls.
+
+**Deployment.** Set the repository-root `.env` and apply migrations explicitly:
+
+```shell
+docker compose up -d --wait postgres redis
+python -m alembic -c backend/alembic.ini upgrade head
+docker compose --profile pipeline up -d --build worker beat
+```
+
+Worker/Beat use one nonroot backend image, shared environment configuration and
+healthy PostgreSQL/Redis dependencies. The `pipeline` profile prevents accidental
+worker startup before migration. Workers never run Alembic. The image excludes `.env`
+and tests. Redis uses an AOF volume; PDFs and the Beat schedule use separate volumes.
+The Compose Redis remains unauthenticated for local use; external authenticated
+Redis requires matching settings. For locally run Python processes, use host/port
+settings appropriate to the host; container defaults use Compose service names.
+Container PDF storage is a named volume, separate from host CLI PDF storage.
+
+Alternatively, with `PYTHONPATH=backend` on Linux:
+
+```shell
+celery -A app.worker.celery_app:celery_app worker --loglevel=INFO --concurrency=2 -Q ingestion,documents,ai,default
+celery -A app.worker.celery_app:celery_app beat --loglevel=INFO --schedule=.data/celerybeat-schedule
+```
+
+Run **one Beat instance**. Both schedule settings default to 60 minutes:
+`FIND_A_TENDER_SCHEDULE_MINUTES` and `CONTRACTS_FINDER_SCHEDULE_MINUTES`; 0 disables
+an entry, enabled values must be 60–10080 minutes. Beat enqueues lightweight trigger
+tasks; database exclusivity applies even if scheduling attempts overlap. Production
+`CELERY_TASK_ALWAYS_EAGER=false`; true deliberately executes locally for testing,
+including CLI triggers. Eager tests do not establish real broker/worker behavior.
+Use the Linux container for production workers rather than Windows prefork.
+
+```shell
+python -m app.pipeline run --source contracts-finder
+python -m app.pipeline status --run-id 12
+python -m app.pipeline status --run-id 12 --after-stage-id 100 --limit 100
+python -m app.pipeline recent --limit 20
+python -m app.pipeline mark-stale
+```
+
+Run prints run ID, root task ID, source, status and collision reuse. Status/recent are
+bounded to 100 rows; status returns a next-stage cursor. In normal mode, run enqueues
+work and returns without executing the pipeline inline. Inspect PostgreSQL status
+for the eventual outcome. CLI returns nonzero for observed failed/partial runs.
+
+Stale maintenance is explicit, never part of ordinary status requests. It marks a
+queued/running run and its unfinished stages failed after no recorded run/stage
+activity for `PIPELINE_STALE_AFTER_MINUTES` (default 60), with the fixed reason
+"Worker execution did not finalize before stale threshold". Set this above expected
+stage duration and confirm/stop hung workers before using it: there is no heartbeat,
+and maintenance does not cancel in-flight provider calls or fence domain-service
+writes. Late stage finalization is rejected. A later scheduled/manual run may then
+proceed; it does not reconstruct the failed run's exact source batch. Broker loss,
+hard crashes and stale recovery remain operational limitations rather than hidden
+successes.
+
+Tests use SQLite, eager Celery with a memory transport, fake source/provider clients,
+and socket guards. They cover concurrent run creation (SQLite only), deduplication,
+failure continuation, retries, provider transaction boundaries, scope, reuse, CLI,
+configuration, migrations and maintenance. Live PostgreSQL locking/migration,
+Redis delivery, a real worker, Beat execution and container startup remain **pending**
+while local infrastructure is unavailable. No real source/provider call was made
+for Task 10 validation; package installation and official documentation lookup are
+separate from pipeline execution.

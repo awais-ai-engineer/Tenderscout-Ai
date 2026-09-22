@@ -26,6 +26,8 @@ class ModelTests(unittest.TestCase):
                 "tender_revisions",
                 "tender_metadata_change_sets",
                 "document_analysis_change_sets",
+                "pipeline_runs",
+                "pipeline_stage_runs",
             },
         )
         required = {
@@ -296,6 +298,44 @@ class ModelTests(unittest.TestCase):
                 "document_analysis_change_sets": set(),
             }
         )
+        required.update(
+            {
+                "pipeline_runs": {
+                    "id",
+                    "run_type",
+                    "source_slug",
+                    "trigger",
+                    "status",
+                    "celery_task_id",
+                    "summary",
+                    "created_at",
+                },
+                "pipeline_stage_runs": {
+                    "id",
+                    "pipeline_run_id",
+                    "stage",
+                    "status",
+                    "entity_type",
+                    "entity_id",
+                    "config_key",
+                    "attempt",
+                    "metrics",
+                    "scope_ids",
+                    "created_at",
+                },
+            }
+        )
+        optional.update(
+            {
+                "pipeline_runs": {"failure_reason", "started_at", "finished_at"},
+                "pipeline_stage_runs": {
+                    "parent_stage_id",
+                    "failure_reason",
+                    "started_at",
+                    "finished_at",
+                },
+            }
+        )
         for name, table in Base.metadata.tables.items():
             with self.subTest(table=name):
                 self.assertEqual(
@@ -319,6 +359,12 @@ class ModelTests(unittest.TestCase):
             constraints,
             {
                 "uq_sources_slug": ("slug",),
+                "uq_pipeline_stage_identity": (
+                    "pipeline_run_id",
+                    "stage",
+                    "entity_type",
+                    "entity_id",
+                ),
                 "uq_revisions_index": ("tender_id", "revision_index"),
                 "uq_metadata_changes_identity": (
                     "from_revision_id",

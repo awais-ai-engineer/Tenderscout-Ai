@@ -8,7 +8,12 @@ import httpx
 from pydantic import ValidationError
 
 from app.schemas.source import SourceCreate
-from app.scrapers.errors import InvalidRecord, SourceFetchError, SourceParseError
+from app.scrapers.errors import (
+    InvalidRecord,
+    SourceFetchError,
+    SourceParseError,
+    TransientSourceFetchError,
+)
 from app.scrapers.records import ParsedListing, ScrapedTender
 
 SOURCE = SourceCreate(
@@ -47,9 +52,12 @@ def fetch_releases(client: httpx.Client) -> object:
             type(error).__name__,
             status,
         )
-        raise SourceFetchError(
-            "Contracts Finder request failed; see HTTP failure log"
-        ) from None
+        failure = (
+            TransientSourceFetchError
+            if isinstance(error, (httpx.TimeoutException, httpx.ConnectError))
+            else SourceFetchError
+        )
+        raise failure("Contracts Finder request failed; see HTTP failure log") from None
     media_type = (
         response.headers.get("content-type", "").split(";", 1)[0].strip().lower()
     )

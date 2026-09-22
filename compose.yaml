@@ -1,3 +1,28 @@
+x-backend: &backend
+  build:
+    context: .
+    dockerfile: backend/Dockerfile
+  image: tenderscout-backend:local
+  profiles: [pipeline]
+  env_file:
+    - path: .env
+      required: false
+  environment:
+    POSTGRES_HOST: postgres
+    POSTGRES_PORT: 5432
+    POSTGRES_DB: ${POSTGRES_DB:-tenderscout}
+    POSTGRES_USER: ${POSTGRES_USER:-tenderscout}
+    POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
+    REDIS_HOST: redis
+    REDIS_PORT: 6379
+    DOCUMENT_STORAGE_DIR: /srv/.data/documents
+  depends_on:
+    postgres:
+      condition: service_healthy
+    redis:
+      condition: service_healthy
+  restart: unless-stopped
+
 services:
   postgres:
     image: pgvector/pgvector:pg17
@@ -18,6 +43,9 @@ services:
 
   redis:
     image: redis:7.4-alpine
+    command: [redis-server, --appendonly, "yes"]
+    volumes:
+      - redis_data:/data
     ports:
       - "127.0.0.1:${REDIS_PORT:-6379}:6379"
     healthcheck:
@@ -27,5 +55,20 @@ services:
       retries: 5
     restart: unless-stopped
 
+  worker:
+    <<: *backend
+    command: [celery, -A, "app.worker.celery_app:celery_app", worker, --loglevel=INFO, --concurrency=2, -Q, "ingestion,documents,ai,default"]
+    volumes:
+      - document_data:/srv/.data/documents
+
+  beat:
+    <<: *backend
+    command: [celery, -A, "app.worker.celery_app:celery_app", beat, --loglevel=INFO, --schedule=/srv/.data/beat/celerybeat-schedule]
+    volumes:
+      - beat_data:/srv/.data/beat
+
 volumes:
   postgres_data:
+  redis_data:
+  document_data:
+  beat_data:

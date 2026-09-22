@@ -64,6 +64,7 @@ def persist_record(
     source_id: int,
     record: ScrapedTender,
     observed_at: datetime,
+    affected_ids: set[int] | None = None,
 ) -> Literal["created", "changed", "unchanged"]:
     existing = find_existing(session, source_id, record)
     values = record.model_dump()
@@ -78,6 +79,8 @@ def persist_record(
         session.add(tender)
         session.flush()
         ensure_baseline(session, tender)
+        if affected_ids is not None:
+            affected_ids.add(tender.id)
         return "created"
     previous = ensure_baseline(session, existing)
     changed = False
@@ -87,6 +90,8 @@ def persist_record(
             changed = True
     existing.last_seen_at = observed_at
     capture_revision(session, existing, previous, observed_at)
+    if affected_ids is not None:
+        affected_ids.add(existing.id)
     return "changed" if changed else "unchanged"
 
 
@@ -94,12 +99,15 @@ def ingest_tenders(
     engine: Engine,
     source: SourceCreate,
     listing: ParsedListing,
+    *,
+    affected_ids: set[int] | None = None,
 ) -> IngestionResult:
     result = IngestionResult(
         discovered=listing.discovered,
         failed=listing.failed,
         skipped=listing.skipped,
     )
+    committed_ids: set[int] = set()
     try:
         with Session(engine) as session, session.begin():
             session.execute(
@@ -124,7 +132,7 @@ def ingest_tenders(
             for record in listing.records:
                 try:
                     outcome = persist_record(
-                        session, stored_source.id, record, observed_at
+                        session, stored_source.id, record, observed_at, committed_ids
                     )
                 except IdentityConflict as error:
                     result.failed += 1
@@ -149,6 +157,8 @@ def ingest_tenders(
             type(error).__name__,
         )
         raise
+    if affected_ids is not None:
+        affected_ids.update(committed_ids)
     logger.info(
         "event=ingestion_complete source=%s discovered=%d created=%d "
         "changed=%d unchanged=%d failed=%d skipped=%d",

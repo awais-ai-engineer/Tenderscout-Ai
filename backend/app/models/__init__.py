@@ -13,11 +13,14 @@ from app.models.company import (
 )
 from app.models.document import DocumentVersion, TenderDocument
 from app.models.match import TenderMatch
+from app.models.pipeline import PipelineRun, PipelineStageRun
 from app.models.rag import ChunkEmbedding, DocumentChunk, TenderQuestion
 from app.models.source import Source
 from app.models.tender import Tender
 
 __all__ = [
+    "PipelineRun",
+    "PipelineStageRun",
     "Base",
     "Source",
     "Tender",

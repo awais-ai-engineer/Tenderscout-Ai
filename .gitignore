@@ -15,3 +15,5 @@ dist/
 .idea/
 .vscode/
 .data/
+celerybeat-schedule*
+celerybeat.pid

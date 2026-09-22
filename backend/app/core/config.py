@@ -25,6 +25,37 @@ class Settings(BaseSettings):
     redis_db: int = Field(default=0, ge=0)
     redis_password: SecretStr | None = None
 
+    celery_broker_url: SecretStr | None = None
+    celery_result_backend: SecretStr | None = None
+    celery_task_always_eager: bool = False
+    find_a_tender_schedule_minutes: int = Field(default=60, ge=0, le=10080)
+    contracts_finder_schedule_minutes: int = Field(default=60, ge=0, le=10080)
+    auto_match_enabled: bool = False
+    auto_match_max_companies: int = Field(default=100, ge=1, le=1000)
+    pipeline_stale_after_minutes: int = Field(default=60, ge=5, le=10080)
+    pipeline_max_tenders: int = Field(default=100, ge=1, le=500)
+    pipeline_max_documents: int = Field(default=100, ge=1, le=500)
+
+    @field_validator(
+        "find_a_tender_schedule_minutes", "contracts_finder_schedule_minutes"
+    )
+    @classmethod
+    def validate_schedule(cls, value: int) -> int:
+        if 0 < value < 60:
+            raise ValueError("Schedules must be disabled (0) or at least 60 minutes")
+        return value
+
+    @field_validator("celery_broker_url", "celery_result_backend")
+    @classmethod
+    def validate_redis_url(cls, value: SecretStr | None) -> SecretStr | None:
+        from urllib.parse import urlsplit
+
+        if value is not None:
+            parsed = urlsplit(value.get_secret_value())
+            if parsed.scheme not in {"redis", "rediss"} or not parsed.hostname:
+                raise ValueError("Celery connection must be a Redis URL")
+        return value
+
     document_storage_dir: Path = Path(".data/documents")
     document_max_bytes: int = Field(default=26214400, gt=0)
     document_max_pages: int = Field(default=500, gt=0)

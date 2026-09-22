@@ -16,6 +16,39 @@ CONFIG_FILE = Path(__file__).resolve().parents[1] / "alembic.ini"
 
 
 class MigrationTests(unittest.TestCase):
+    def test_0007_pipeline_tables_partial_index_and_restrict(self):
+        output = StringIO()
+        with patch.dict(
+            os.environ, {"POSTGRES_PASSWORD": "offline-test-only"}, clear=True
+        ):
+            command.upgrade(
+                Config(str(CONFIG_FILE), output_buffer=output), "0006:0007", sql=True
+            )
+        sql = output.getvalue()
+        self.assertEqual(sql.count("CREATE TABLE"), 2)
+        self.assertIn("CREATE UNIQUE INDEX uq_pipeline_active_source", sql)
+        self.assertIn("WHERE status IN ('queued', 'running')", sql)
+        self.assertIn("CONSTRAINT uq_pipeline_stage_identity UNIQUE", sql)
+        self.assertIn("metrics JSONB", sql)
+        self.assertIn("scope_ids JSONB", sql)
+        self.assertIn(
+            "FOREIGN KEY(pipeline_run_id) REFERENCES pipeline_runs (id) "
+            "ON DELETE RESTRICT",
+            sql,
+        )
+        self.assertNotIn("ALTER TABLE", sql)
+        output = StringIO()
+        with patch.dict(
+            os.environ, {"POSTGRES_PASSWORD": "offline-test-only"}, clear=True
+        ):
+            command.downgrade(
+                Config(str(CONFIG_FILE), output_buffer=output), "0007:0006", sql=True
+            )
+        self.assertLess(
+            output.getvalue().index("DROP TABLE pipeline_stage_runs"),
+            output.getvalue().index("DROP TABLE pipeline_runs"),
+        )
+
     def test_postgresql_upgrade_sql_matches_model_metadata(self) -> None:
         output = StringIO()
         config = Config(str(CONFIG_FILE), output_buffer=output)
@@ -49,6 +82,7 @@ class MigrationTests(unittest.TestCase):
         self.assertIn("'0004'", sql)
         self.assertIn("'0005'", sql)
         self.assertIn("'0006'", sql)
+        self.assertIn("'0007'", sql)
 
     def test_postgresql_downgrade_sql_drops_child_table_first(self) -> None:
         output = StringIO()
