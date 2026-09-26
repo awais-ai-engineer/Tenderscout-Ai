@@ -181,6 +181,8 @@ def index_ready(version_id, settings):
         .where(
             DocumentChunk.document_version_id == version_id,
             DocumentChunk.chunker_version == CHUNKER_VERSION,
+            DocumentChunk.chunk_size == settings.rag_chunk_size_chars,
+            DocumentChunk.chunk_overlap == settings.rag_chunk_overlap_chars,
         )
         .correlate(DocumentVersion)
         .scalar_subquery()
@@ -192,6 +194,8 @@ def index_ready(version_id, settings):
         .where(
             DocumentChunk.document_version_id == version_id,
             DocumentChunk.chunker_version == CHUNKER_VERSION,
+            DocumentChunk.chunk_size == settings.rag_chunk_size_chars,
+            DocumentChunk.chunk_overlap == settings.rag_chunk_overlap_chars,
             ChunkEmbedding.provider == "openai",
             ChunkEmbedding.model == settings.ai_embedding_model,
             ChunkEmbedding.dimensions == settings.ai_embedding_dimensions,

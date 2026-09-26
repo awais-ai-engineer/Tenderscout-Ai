@@ -1092,7 +1092,7 @@ select necessary columns and use aggregates, correlated subqueries and a grouped
 version window query to avoid per-row lookups. Lists omit extracted PDF text,
 embeddings, local storage paths, company snapshots and raw provider responses.
 Individual structured analysis, match and change details retain bounded evidence.
-Requests are capped at **256 KiB**, including chunked bodies. Domain input bounds
+Requests are capped at **8 MiB**, including chunked bodies. Domain input bounds
 still apply; company nested lists remain capped at 200 each. Request bodies larger
 than the HTTP cap must be reduced even if their individual fields are valid.
 
@@ -1182,6 +1182,13 @@ npm run typecheck
 npm run build
 npm run smoke
 ```
+
+`npm run typecheck` first runs the installed Next.js `next typegen` command.
+`frontend/next-env.d.ts` is generated and ignored, so typechecking works after
+`npm ci` without a prior build or committed generated types. Index availability
+requires the configured chunk size and overlap as well as the embedding model
+and dimensions. Citation cards use distinct local keys even when multiple quotes
+refer to the same chunk; citation content is unchanged.
 
 The smoke script starts a production Next server on loopback with an isolated
 synthetic HTTP API, checks server-rendered pages/empty/error states, then stops both

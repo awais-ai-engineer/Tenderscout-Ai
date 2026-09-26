@@ -1,6 +1,6 @@
 # Task 11 completion report
 
-Validated on 2026-09-26. This change adds the product API and dashboard without
+Validated on 2026-09-27. This change adds the product API and dashboard without
 rewriting the existing domain services or changing the database schema.
 
 ## Files and purpose
@@ -9,7 +9,7 @@ New backend files:
 
 | File | Purpose |
 | --- | --- |
-| `backend/app/api/product_support.py` | Shared dependencies, sanitized errors, explicit CORS and 256 KiB request boundary. |
+| `backend/app/api/product_support.py` | Shared dependencies, sanitized errors, explicit CORS and 8 MiB request boundary. |
 | `backend/app/api/v1/__init__.py` | Versioned API package. |
 | `backend/app/api/v1/router.py` | `/api/v1` composition and documented error responses. |
 | `backend/app/api/v1/tenders.py` | Tender, document, analysis, revision, change and dashboard read adapters. |
@@ -18,7 +18,7 @@ New backend files:
 | `backend/app/schemas/product.py` | Explicit bounded request, summary, detail, page and error schemas. |
 | `backend/app/services/queries.py` | Column projections, filters, aggregate counts and cursor reads. |
 | `backend/app/services/product_actions.py` | Adapt existing action services and domain failures to product outcomes. |
-| `backend/tests/test_product_api.py` | 19 API tests using SQLite, ASGI and fake external clients. |
+| `backend/tests/test_product_api.py` | 20 API tests using SQLite, ASGI and fake external clients. |
 
 Existing files modified:
 
@@ -36,7 +36,7 @@ All frontend files are new:
 | Files under `frontend/` | Purpose |
 | --- | --- |
 | `package.json`, `package-lock.json` | Modest dependency set, repeatable install and validation scripts. |
-| `tsconfig.json`, `next-env.d.ts`, `next.config.ts`, `eslint.config.mjs` | Strict TypeScript, App Router, standalone build and Next lint rules. |
+| `tsconfig.json`, `next.config.ts`, `eslint.config.mjs` | Strict TypeScript, App Router, standalone build and Next lint rules. |
 | `.env.example`, `.dockerignore`, `Dockerfile` | Browser/server URL separation and non-root container build. |
 | `app/layout.tsx`, `app/globals.css` | Professional shared navigation, typography, responsive layout and focus styling. |
 | `app/loading.tsx`, `app/error.tsx`, `app/not-found.tsx` | Route loading, retry and missing-resource states. |
@@ -56,6 +56,17 @@ All frontend files are new:
 
 This report is the only additional documentation file. Existing migrations,
 scrapers, provider clients, matching, RAG and pipeline orchestration are unchanged.
+
+Final review fixes: the named request-body limit is 8 MiB; larger requests retain
+the sanitized 413 response, while requests above the former limit reach normal
+validation. Index readiness checks configured chunk size/overlap in both counts.
+Citation rendering keys include a local index, preserving multiple quotes from
+the same chunk. Generated `frontend/next-env.d.ts` is ignored instead of tracked;
+`pretypecheck` runs the installed Next.js 16.3.5 `next typegen` command.
+Review validation passed after `npm ci` with `.next`, `next-env.d.ts` and the
+TypeScript incremental cache absent: lint, generated types, typecheck, production
+build and all 15 SSR smoke checks. No live provider calls were made; smoke traffic
+was loopback-only against the synthetic test API.
 
 ## API and UI completion checklist
 
@@ -85,8 +96,8 @@ scrapers, provider clients, matching, RAG and pipeline orchestration are unchang
 | 22. Accessibility | Labels, semantic tables/headings, skip link, visible focus, text statuses and reduced-motion CSS. Responsive breakpoints and deliberate table scrolling. Full browser/assistive-technology audit pending. |
 | 23. Compose | Optional `product` API/frontend. API depends on healthy PostgreSQL only; worker/Beat remain independent. Explicit migrations; non-root frontend image. Configuration validated; containers not built/run. |
 | 24. Migration status | Head **0007**. All seven migration files compared against HEAD and unchanged. No new migration. |
-| 25. Backend tests added | 19 tests cover reads, filters, pagination, errors, sanitized projections, strict company creation, matching, Q&A outcomes/reuse/citations, changes, pipeline, CORS, health and OpenAPI. |
-| 26. Backend results | **352 tests passed**. Ruff check passed; all 124 Python files formatted; `pip check` reports no broken requirements. App import, `/health` and API requests pass in ASGI tests. |
+| 25. Backend tests added | 20 tests cover reads, filters, pagination, errors, sanitized projections, strict company creation, matching, Q&A outcomes/reuse/citations, changes, pipeline, CORS, health and OpenAPI. |
+| 26. Backend results | **353 tests passed**. Ruff check passed; all 124 Python files formatted; `pip check` reports no broken requirements. App import, `/health` and API requests pass in ASGI tests. |
 | 27. Frontend results | Installation completed; ESLint, TypeScript and production build passed. **15 production SSR smoke checks passed** for main pages, tender tabs and API error states. |
 | 28. PostgreSQL live-tested? | **No.** Local port 5432 unavailable. SQLite tests do not establish PostgreSQL execution, locking or query performance. |
 | 29. API ran live? | **No external FastAPI server.** Actual app exercised in-process through TestClient/ASGI with SQLite. The frontend smoke API is synthetic, not a live backend substitute. |

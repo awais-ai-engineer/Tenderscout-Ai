@@ -13,6 +13,8 @@ from app.core.config import Settings
 from app.services.product_actions import ProductActionError
 from app.services.queries import ReadNotFound
 
+MAX_PRODUCT_REQUEST_BODY_BYTES = 8 * 1024 * 1024
+
 Limit = Annotated[int, Query(ge=1, le=100)]
 Cursor = Annotated[int | None, Query(gt=0)]
 
@@ -145,9 +147,9 @@ class ProductBoundary:
             if message["type"] == "http.disconnect":
                 return
             body.extend(message.get("body", b""))
-            if len(body) > 262144:
+            if len(body) > MAX_PRODUCT_REQUEST_BODY_BYTES:
                 return await error(
-                    413, "request_too_large", "Request body exceeds 256 KiB"
+                    413, "request_too_large", "Request body exceeds 8 MiB"
                 )(scope, receive, send)
             if not message.get("more_body"):
                 break

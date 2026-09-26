@@ -13,6 +13,7 @@ from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import Session
 from sqlalchemy.pool import StaticPool
 
+from app.api.product_support import MAX_PRODUCT_REQUEST_BODY_BYTES
 from app.core.config import Settings
 from app.main import app
 from app.models import DocumentVersion, Tender, TenderAnalysis, TenderDocument
@@ -174,10 +175,15 @@ class ProductApiTests(RagDatabaseMixin, unittest.TestCase):
         self.assertTrue(
             self.get(path)["items"][0]["versions"]["items"][0]["is_indexed"]
         )
-        self.settings.ai_embedding_model = "unavailable-model"
-        self.assertFalse(
-            self.get(path)["items"][0]["versions"]["items"][0]["is_indexed"]
-        )
+        for field, value in (
+            ("ai_embedding_model", "unavailable-model"),
+            ("rag_chunk_size_chars", self.settings.rag_chunk_size_chars + 1),
+            ("rag_chunk_overlap_chars", self.settings.rag_chunk_overlap_chars + 1),
+        ):
+            with self.subTest(field=field), patch.object(self.settings, field, value):
+                self.assertFalse(
+                    self.get(path)["items"][0]["versions"]["items"][0]["is_indexed"]
+                )
         self.assertNotIn(
             "storage_path",
             json.dumps(self.get(f"/documents/{self.document_id}/versions")),
@@ -398,8 +404,18 @@ class ProductApiTests(RagDatabaseMixin, unittest.TestCase):
         self.assertEqual(response.status_code, 503)
         self.assertNotIn("private", response.text)
         self.assertNotIn("secret", response.text)
-        response = self.client.post("/api/v1/companies", content=b"x" * 262145)
+        response = self.client.post(
+            "/api/v1/companies", content=b"x" * (MAX_PRODUCT_REQUEST_BODY_BYTES + 1)
+        )
         self.assertEqual(response.status_code, 413)
+        self.assertEqual(response.json()["error"]["code"], "request_too_large")
+
+    def test_body_above_old_limit_reaches_company_validation(self):
+        response = self.client.post(
+            "/api/v1/companies", json={"name": "x" * (256 * 1024 + 1)}
+        )
+        self.assertEqual(response.status_code, 422)
+        self.assertEqual(response.json()["error"]["code"], "invalid_request")
 
     def test_cors_only_allows_configured_origin(self):
         headers = {

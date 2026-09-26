@@ -70,8 +70,8 @@ export function AskForm({ versionId }: { versionId: number }) {
               {answer.answer ||
                 "The answer is not established by the indexed tender text."}
             </p>
-            {answer.citations.map((citation) => (
-              <article className="fact-card" key={citation.chunk_id}>
+            {answer.citations.map((citation, index) => (
+              <article className="fact-card" key={`${citation.chunk_id}-${index}`}>
                 <strong>
                   Document version #{citation.document_version_id} · Chunk{" "}
                   {citation.chunk_index}
