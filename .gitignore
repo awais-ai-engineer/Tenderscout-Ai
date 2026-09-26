@@ -17,3 +17,6 @@ dist/
 .data/
 celerybeat-schedule*
 celerybeat.pid
+node_modules/
+.next/
+*.tsbuildinfo

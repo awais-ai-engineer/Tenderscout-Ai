@@ -24,6 +24,30 @@ class Settings(BaseSettings):
     redis_port: int = Field(default=6379, ge=1, le=65535)
     redis_db: int = Field(default=0, ge=0)
     redis_password: SecretStr | None = None
+    cors_allowed_origins: list[str] = ["http://localhost:3000"]
+
+    @field_validator("cors_allowed_origins")
+    @classmethod
+    def validate_origins(cls, values: list[str]) -> list[str]:
+        from urllib.parse import urlsplit
+
+        if len(values) > 20:
+            raise ValueError("At most 20 CORS origins are allowed")
+        for value in values:
+            parsed = urlsplit(value)
+            if (
+                parsed.scheme not in {"http", "https"}
+                or not parsed.hostname
+                or parsed.username
+                or parsed.password
+                or parsed.path
+                or parsed.query
+                or parsed.fragment
+                or "*" in value
+            ):
+                raise ValueError("CORS entries must be explicit HTTP origins")
+            _ = parsed.port
+        return list(dict.fromkeys(values))
 
     celery_broker_url: SecretStr | None = None
     celery_result_backend: SecretStr | None = None

@@ -993,3 +993,201 @@ Redis delivery, a real worker, Beat execution and container startup remain **pen
 while local infrastructure is unavailable. No real source/provider call was made
 for Task 10 validation; package installation and official documentation lookup are
 separate from pipeline execution.
+
+## Product API and dashboard (Task 11)
+
+The `/api/v1` API adapts the existing synchronous services. Matching, analysis,
+Q&A, change detection and pipeline rules remain in their existing service modules.
+No migration is added: the Alembic head remains **0007**. There is no authentication,
+tenant isolation, proposal generation or automatic bidding. Use a trusted local
+workspace; CORS is a browser origin policy, not access control.
+
+### Run locally
+
+Configure the root `.env` from `.env.example`, install the backend requirements,
+and apply migrations explicitly using the existing setup instructions. Then, from
+the repository root in PowerShell:
+
+```powershell
+$env:PYTHONPATH = "backend"
+.\.venv\Scripts\python.exe -m uvicorn app.main:app --host 127.0.0.1 --port 8000
+```
+
+`/health` remains a liveness endpoint, not a database readiness check. Interactive
+API documentation is at `http://localhost:8000/docs`, with the schema at
+`/openapi.json`. Historical reads need PostgreSQL, but do not contact Redis,
+workers or providers. Triggering processing additionally requires Redis and a
+worker; use the Task 10 commands. GET requests never run matching or changes again.
+
+In another terminal, using Node.js 24:
+
+```powershell
+cd frontend
+Copy-Item .env.example .env.local
+npm ci
+npm run dev
+```
+
+Open `http://localhost:3000`. The frontend environment example contains:
+
+```dotenv
+NEXT_PUBLIC_API_BASE_URL=http://localhost:8000/api/v1
+```
+
+This URL must be reachable **from the browser**. Next.js embeds public environment
+variables at build time: set the intended deployment URL before `npm run build`,
+then rebuild when it changes. Never put a credential in a `NEXT_PUBLIC_*` variable.
+`API_INTERNAL_BASE_URL` optionally overrides only server-rendered requests; Compose
+sets it to `http://api:8000/api/v1`. Do not use that container hostname in the public
+URL. Without either configured address, the UI reports a configuration error.
+
+Root `CORS_ALLOWED_ORIGINS` is a JSON array of exact HTTP(S) origins, defaulting to
+`["http://localhost:3000"]`. Schemes, ports and hostnames must match the browser;
+wildcards, credentials, paths, queries and fragments are rejected. No cross-origin
+credentials are enabled. An empty array disables cross-origin browser access.
+
+### Routes and contracts
+
+All paths below have the `/api/v1` prefix. IDs are positive integers.
+
+| Method / path | Behavior |
+| --- | --- |
+| GET `/dashboard/summary` | Factual tender/company counts; at most five deadlines, changes and runs each. |
+| GET `/tenders` | Summary rows; filters: `source`, `search`, `organization`, `category`, `deadline_before`, `deadline_after`. |
+| GET `/tenders/{id}` | Current metadata, latest revision, bounded document/analysis summaries, latest metadata change and match count. |
+| GET `/tenders/{id}/documents` | Logical documents with up to five initial versions each. |
+| GET `/documents/{id}/versions` | Older versions with extraction, supported analysis and current embedding-index availability. |
+| GET `/tenders/{id}/analyses` | Analysis summaries, including failed attempts. |
+| GET `/analyses/{id}` | Validated supported structured facts and evidence; `facts=null` for failed/unsupported records. |
+| GET `/document-versions/{id}/analysis` | Latest supported completed analysis; **404** when unavailable. |
+| GET, POST `/companies` | Paginated profiles; create with the same strict `CompanyInput` as the CLI, returning **201** and the normalized profile. |
+| GET `/companies/{id}` | Company-provided facts and nested capabilities, certifications and experience. |
+| POST `/matches` | Existing deterministic matching with `{company_id, analysis_id}`; returns explanation, blockers, unknowns, coverage and heuristic alignment. |
+| GET `/matches/{id}` | Saved comparison, without recalculation. |
+| GET `/companies/{id}/matches`, `/tenders/{id}/matches` | Saved match summaries. |
+| POST `/document-versions/{id}/ask` | `{question}`; document-scoped answer, exact chunk citations and reuse state. |
+| GET `/tenders/{id}/revisions` | Revision IDs/indices, observed dates, deadlines and hashes. |
+| GET `/tenders/{id}/changes` | Stored comparison summaries; `kind=metadata` (default) or `document`. |
+| GET `/changes/metadata/{id}`, `/changes/document/{id}` | Stored old/new facts, evidence and comparison IDs; no recomputation or materiality score. |
+| GET, POST `/pipeline/runs` | Recent runs; `{source}` enqueues a supported source and returns **202** with run/task IDs. |
+| GET `/pipeline/runs/{id}` | Operational run record and bounded stage page. No stale-maintenance endpoint. |
+
+Growing collections use descending ID cursors: `limit=20` by default, maximum
+100, and `cursor=<next_cursor>` from `{items, next_cursor}`. Keep filters unchanged
+when following a cursor. Stage history instead preserves the existing ascending
+`after_stage_id` cursor and defaults to 100 stages. Tender detail embeds five
+documents and 20 analysis summaries; their cursors reach older records. The
+dashboard's counts are aggregate SQL queries, not client-side list counts.
+
+Search is literal case-insensitive substring matching on title/organization;
+organization/category filters are also substrings. It is not ranked full-text
+search. `%` and `_` are escaped. Deadline filters require an explicit timezone.
+“Upcoming”/`active_tenders_count` means a recorded deadline at or after the current
+UTC time; it does not establish that a notice remains open or has not been cancelled.
+Unknown deadlines are excluded. Titles are capped at 2,000 characters in projections
+and detail descriptions at 20,000, with an explicit `description_truncated` flag.
+
+Explicit Pydantic summary/detail schemas forbid unexpected fields. Read queries
+select necessary columns and use aggregates, correlated subqueries and a grouped
+version window query to avoid per-row lookups. Lists omit extracted PDF text,
+embeddings, local storage paths, company snapshots and raw provider responses.
+Individual structured analysis, match and change details retain bounded evidence.
+Requests are capped at **256 KiB**, including chunked bodies. Domain input bounds
+still apply; company nested lists remain capped at 200 each. Request bodies larger
+than the HTTP cap must be reduced even if their individual fields are valid.
+
+Errors use the documented envelope, without echoing input, provider or SQL internals:
+
+```json
+{"error":{"code":"tender_not_found","message":"Tender does not exist"}}
+```
+
+Missing resources return 404; invalid input 422; oversized bodies 413; incompatible
+analysis or unavailable document index 409; invalid answer/citations 502; missing AI
+configuration, unavailable providers/database or pipeline delivery 503. Unexpected
+failures return a generic 500. Valid insufficient evidence returns **200** with
+`status="insufficient"`. Matching scores are **heuristic alignment, not win
+probability**; coverage and unknowns remain separate. User-entered company facts
+are not externally verified. Exact citations show provenance, not proof of semantic
+correctness.
+
+Ask Tender keeps Task 8's synchronous provider calls and transaction boundaries;
+it does not hold a database transaction across those calls. The browser waits up
+to 150 seconds; ordinary requests wait 15 seconds. Configure any deployment proxy
+request timeout to accommodate at least 150 seconds, since embedding and answer
+calls can each take up to 60 seconds. A browser timeout does not cancel server work;
+a subsequent request may reuse the durable result. No streaming or chat history is
+added. Pipeline POST never runs eager processing inline; eager mode is rejected by
+the HTTP adapter. Run status is the durable source of truth after enqueueing.
+
+### Dashboard use
+
+The dashboard uses Next.js **16.3.5**, React **19.3.0**, TypeScript and ESLint,
+without a component framework. `/` shows actual counts and recent activity;
+`/tenders` provides search/source/deadline filters and cursor links.
+`/tenders/[id]` has Overview, Analysis, Documents, Changes, Ask Tender and Matches
+tabs. Large tab contents are fetched only when selected. Analysis facts expose
+expandable quotes; documents expose version state without paths; change links open
+`/changes/[kind]/[id]` with added/removed/modified labels and old/new evidence.
+
+Create a profile at `/companies/new`, inspect it at `/companies/[id]`, then choose
+it in a tender's Matches tab. Saved explanations are at `/matches/[id]`. Ask Tender
+requires selecting a version indexed for the configured embedding model. There are
+explicit empty, loading, insufficient-evidence and error states; no demo data is
+substituted when the API is empty or unavailable.
+
+`/pipeline` offers the two supported sources and recent runs; `/pipeline/[id]`
+shows attempts, safe failure reasons and metrics. Active runs poll every five
+seconds and stop when terminal or unmounted. Shared API URLs/error handling are
+centralized in `frontend/lib/api.ts`. Read pages use Server Components; forms,
+version loading and polling use Client Components. UTC formatting is centralized.
+The layout includes labeled controls, focus outlines, a skip link, semantic tables,
+textual statuses, reduced-motion support and responsive sidebar/forms; tables scroll
+horizontally on narrow screens. Full browser accessibility testing remains pending.
+
+### Optional Compose product profile
+
+After configuring `.env` and applying migrations explicitly:
+
+```powershell
+docker compose --profile product up --build api frontend
+```
+
+This starts PostgreSQL as the API's healthy dependency. Redis and workers are not
+required for historical reads. To enable manual processing too:
+
+```powershell
+docker compose --profile product --profile pipeline up --build
+```
+
+API and frontend bind to loopback ports 8000 and 3000. Worker/Beat have no frontend
+dependency. The API reuses the backend image and does not run migrations at startup.
+The frontend uses a non-root multi-stage standalone image. Compose's public URL
+default is for local development only; set `NEXT_PUBLIC_API_BASE_URL` for the actual
+browser-visible deployment endpoint and rebuild. Docker execution is pending until
+a working daemon is available.
+
+### Validation
+
+Backend commands remain the unittest/Ruff commands above, plus `python -m pip check`.
+Product API tests use SQLite fixtures, in-process ASGI requests, fake provider clients
+and a mocked pipeline trigger; external socket connections are guarded. They cover
+the API contract, filters, cursor bounds, strict profile validation, real matching
+and Q&A services, change evidence, safe errors, CORS and bounded projections.
+
+```powershell
+cd frontend
+npm run lint
+npm run typecheck
+npm run build
+npm run smoke
+```
+
+The smoke script starts a production Next server on loopback with an isolated
+synthetic HTTP API, checks server-rendered pages/empty/error states, then stops both
+servers. Its fixtures exist only in the test script. It does **not** validate browser
+hydration, action forms, live PostgreSQL, Redis delivery or real provider calls.
+Task 12 still needs full deployed browser and infrastructure validation.
+
+The [Task 11 completion report](docs/task11-report.md) records the file inventory,
+validation results and remaining live checks.
