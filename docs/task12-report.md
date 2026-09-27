@@ -36,8 +36,10 @@ check passed (124 files); `pip check` found no broken requirements; Alembic head
 reported `0007`. Frontend lint, typecheck/type generation and production build
 passed; all **15 SSR smoke checks passed**.
 
-Final automated results are recorded below. PostgreSQL integration execution and
-GitHub-hosted execution must not be inferred from local unit or workflow checks.
+Final automated results are recorded below. GitHub Actions run #1 on commit
+`10c4e0748d2da1b182d1711a4a60557819f13d98` completed with overall success;
+backend, frontend and PostgreSQL jobs each succeeded. Hosted PostgreSQL results
+are separate from the blocked local PostgreSQL/Docker checks.
 
 | Required report item | Status and evidence |
 | --- | --- |
@@ -46,10 +48,10 @@ GitHub-hosted execution must not be inferred from local unit or workflow checks.
 | 3. Files modified | **VERIFIED** — README and root Docker ignore rules only. |
 | 4. Bugs discovered | **VERIFIED** — README said eleven business fields; `BUSINESS_FIELDS` contains ten. Nested backend dotenv exclusions were not explicit. No runtime regression demonstrated. |
 | 5. Bugs fixed | **VERIFIED** — corrected the field count; tightened build context exclusions. Existing Task 11 fixes remain intact. |
-| 6. Migration head | **VERIFIED** — repository Alembic head `0007`; actual database head is **BLOCKED**. |
+| 6. Migration head | **VERIFIED** — repository head `0007`; hosted CI upgraded its PostgreSQL service to `0007` (head). Local database head remains **BLOCKED**. |
 | 7. Migration files changed? | **VERIFIED** — all seven migration files compared with baseline, unchanged. No 0008. |
 | 8. Backend unit tests | **VERIFIED** ? final full suite: **353 passed**, no skips (99.526 seconds). |
-| 9. PostgreSQL integration tests | **BLOCKED** — PostgreSQL unavailable. Discovery ran and explicitly skipped all **5** tests without opt-in; none of these five is claimed passed. CI enables them deliberately. |
+| 9. PostgreSQL integration tests | **VERIFIED in GitHub CI** — all **5 passed** against `pgvector/pgvector:pg17`. **BLOCKED locally** — PostgreSQL unavailable; local discovery explicitly skipped all five without opt-in. |
 | 10. Ruff | **VERIFIED** ? full backend lint passed; all **125** Python files passed format checking. |
 | 11. pip check | **VERIFIED** ? no broken requirements found. |
 | 12. Frontend lint | **VERIFIED** ? `npm ci` followed by `npm run lint` passed. |
@@ -57,7 +59,7 @@ GitHub-hosted execution must not be inferred from local unit or workflow checks.
 | 14. Frontend production build | **VERIFIED** ? `npm run build` completed with Next.js 16.3.5. |
 | 15. SSR smoke | **VERIFIED** ? final **15 passed**, production Next server with isolated synthetic HTTP API; not browser interaction. |
 | 16. Docker daemon | **BLOCKED** — `docker info` could not connect: `dockerDesktopLinuxEngine` named pipe does not exist (system cannot find the file specified). |
-| 17. PostgreSQL live validation | **BLOCKED** — localhost:5432 not reachable. No live migration current/upgrade, pgvector/schema, locking or SQL execution claimed. |
+| 17. PostgreSQL live validation | **VERIFIED in GitHub CI** — Alembic upgrade to `0007` and all five integration tests passed on the pgvector PostgreSQL service. **BLOCKED locally** — localhost:5432 not reachable; no local migration or database execution claimed. |
 | 18. Redis live validation | **BLOCKED** — localhost:6379 not reachable; no PING or broker delivery claimed. |
 | 19. Celery worker live result | **BLOCKED** — no Redis/PostgreSQL; no worker started or durable transitions observed. |
 | 20. Beat live result | **BLOCKED** — no broker; no scheduler started. |
@@ -73,13 +75,13 @@ GitHub-hosted execution must not be inferred from local unit or workflow checks.
 | 30. Real Ask Tender | **NOT RUN** — provider opt-in absent. Unit tests exercise exact citation validation with fake clients. |
 | 31. GitHub Actions files | **VERIFIED** — `.github/workflows/ci.yml` added with backend/frontend/PostgreSQL jobs; pgvector-capable PostgreSQL 17 service, test-only credentials and migrations from base. |
 | 32. Local CI-equivalent validation | **VERIFIED** ? backend/frontend commands above and workflow syntax via **actionlint v1.7.12** (shellcheck integration disabled; unavailable). Action SHAs were resolved from official action repositories. PostgreSQL job remains **BLOCKED** locally. |
-| 33. GitHub-hosted CI | **NOT RUN** — changes have not been pushed and no hosted run for them has been observed. No passing badge added. |
+| 33. GitHub-hosted CI | **VERIFIED** — run #1 on commit `10c4e0748d2da1b182d1711a4a60557819f13d98` concluded success. Backend, frontend and PostgreSQL jobs succeeded: 353 backend tests, Ruff check/format, pip check, Alembic upgrade to `0007`, five PostgreSQL integration tests, and frontend lint/typecheck/build/smoke. No badge added. |
 | 34. Security/privacy audit | **VERIFIED, scoped** — findings below. No real credential found; no history rewrite needed. This is not an independent security certification. |
 | 35. Benchmarks | **NOT RUN — not measured.** No working PostgreSQL dataset; no performance numbers invented. |
 | 36. Docker image builds | **BLOCKED** — daemon unavailable. Dockerfile inspection confirms non-root users, but is not an image-build result. |
 | 37. Compose runtime | **BLOCKED** — daemon unavailable. `docker compose --profile product --profile pipeline config --quiet` succeeded; that validates configuration only. |
 | 38. End-to-end walkthrough | **BLOCKED** — no PostgreSQL/Redis and no browser runtime. Source fetches, API failure handling and synthetic SSR checks do not establish an end-to-end pipeline. |
-| 39. Remaining unverified | Live migrations/pgvector/SQL/index/locks, persistent source/document idempotency, Redis delivery/worker/Beat, successful real-data API/UI flows, browser interactions, Docker builds/volumes, opted-in AI execution and hosted CI. |
+| 39. Remaining unverified | Local PostgreSQL/Docker/Compose execution, persistent source/document idempotency, Redis delivery/worker/Beat, successful real-data API/UI flows, browser interactions, project Docker image builds/volumes and opted-in AI execution. Hosted migrations and the five PostgreSQL integration tests are verified separately. |
 | 40. Known limitations | No auth/multi-tenancy; CORS is not access control. Synchronous Q&A, non-transactional DB-to-broker publication, no exactly-once claim, provider/source availability restrictions, heuristic matching and company assertions remain documented. |
 
 ## Actual API checks
@@ -129,8 +131,8 @@ because no database ingestion took place. No real source history was created or 
 - Tests use fake providers and mocked source transports; the new integration suite
   accesses only its configured PostgreSQL instance. Live source CLI checks were
   separate from tests. No real provider call or automatic pipeline trigger occurred.
-- No hosted deployment, CI success, accuracy improvement, win-rate improvement,
-  production performance or uptime claim was added.
+- Hosted CI success is recorded for run #1 only. No hosted deployment, accuracy
+  improvement, win-rate improvement, production performance or uptime claim is made.
 
 The changes are suitable for final human code/documentation review, with the blocked
 integration items as explicit release gates. They do not establish a fully validated

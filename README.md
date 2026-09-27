@@ -16,8 +16,9 @@ not a public multi-user deployment.
 - [Architecture, CI and deployment considerations](#integration-and-deployment-task-12)
 - [Exact validation evidence and blockers](docs/task12-report.md)
 
-Local automated checks are recorded in the report. GitHub-hosted CI has not yet
-been observed for Task 12; no deployment or accuracy claims are implied.
+Local and hosted checks are recorded in the report. GitHub Actions run #1 passed
+on commit `10c4e0748d2da1b182d1711a4a60557819f13d98`; this does not establish
+a live deployment or accuracy claim.
 
 ## Structure
 
@@ -1258,8 +1259,12 @@ database and runs five focused integration tests: schema/vector type, timezone a
 product SQL, vector distance/index readiness, the partial unique active-run index,
 and a real conflicting row lock. Jobs do not scrape sources or call AI providers.
 Action revisions are pinned, permissions are read-only, and CI credentials are
-test-only values for the disposable service. A workflow file is not evidence of a
-successful hosted run; see the report for the observed status.
+test-only values for the disposable service. GitHub Actions run #1 completed
+successfully on commit `10c4e0748d2da1b182d1711a4a60557819f13d98`:
+backend, frontend and PostgreSQL jobs all succeeded. The hosted PostgreSQL job
+applied Alembic head `0007` and passed all five integration tests. Local
+Docker/Compose, Redis worker/Beat and browser validation remain blocked; see the
+report for the separate results.
 
 Run the PostgreSQL tests only against a dedicated disposable database named
 `tenderscout_*_test`, using environment variables rather than the ordinary `.env`:
