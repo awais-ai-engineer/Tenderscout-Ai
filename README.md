@@ -1143,9 +1143,28 @@ the HTTP adapter. Run status is the durable source of truth after enqueueing.
 The dashboard uses Next.js **16.3.5**, React **19.3.0**, TypeScript and ESLint,
 without a component framework. `/` shows actual counts and recent activity;
 The customer navigation links Overview, Discover, My Matches, Saved Tenders,
-Companies, Alerts and Settings. `/discover` searches recorded tenders using
-existing search/source/deadline filters and cursor links; it is not live provider
-search. The former `/tenders` list URL redirects to `/discover`.
+Companies, Alerts and Settings. The former `/tenders` list URL redirects to
+`/discover`.
+
+### Live Discover
+
+A non-empty Discover query calls `GET /api/v1/discover?q=...`. The API concurrently
+fetches one bounded public listing from each selected source: **Contracts Finder**
+and **Find a Tender** are the only live sources supported in this phase. Neither
+adapter relies on unverified server-side text search: TenderScout normalizes and
+upserts the bounded batches with the existing ingestion/revision logic, then
+filters stored tenders by title, organization, category and description. Title
+matches rank first. This means a query may miss relevant notices outside the
+latest source batch unless they were recorded previously.
+
+The response reports the request time, each source's refresh status and time,
+and whether each result was fetched in that request. If a source fails, stored
+matches remain available and are labeled as recorded; raw upstream errors are
+not shown. Empty-query browsing reads recorded tenders without contacting
+sources. Search never runs document processing or AI analysis synchronously.
+To check public source access manually in a configured local environment, open
+`/discover`, submit a query of at least three characters, and inspect the source
+status and result freshness; this is not part of automated CI.
 `/tenders/[id]` has Overview, Analysis, Documents, Changes, Ask Tender and Matches
 tabs. Large tab contents are fetched only when selected. Analysis facts expose
 expandable quotes; documents expose version state without paths; change links open

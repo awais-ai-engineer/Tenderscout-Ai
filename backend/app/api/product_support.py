@@ -10,6 +10,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from starlette.exceptions import HTTPException
 
 from app.core.config import Settings
+from app.services.discovery import InvalidQuery, LiveSearchUnavailable
 from app.services.product_actions import ProductActionError
 from app.services.queries import ReadNotFound
 
@@ -61,6 +62,18 @@ ACTION_ERRORS = {
 
 
 def install_errors(app):
+    @app.exception_handler(InvalidQuery)
+    async def invalid_discover_query(request, exc):
+        return error(422, "invalid_query", str(exc))
+
+    @app.exception_handler(LiveSearchUnavailable)
+    async def live_search_unavailable(request, exc):
+        return error(
+            503,
+            "live_search_unavailable",
+            "Live search and recorded results are temporarily unavailable",
+        )
+
     @app.exception_handler(ReadNotFound)
     async def missing(request, exc):
         return error(

@@ -16,6 +16,18 @@ export interface Tender {
   document_count: number;
   latest_analysis_status: string | null;
 }
+export interface DiscoverSource {
+  source: Source;
+  status: "success" | "unavailable";
+  fetched_at: string | null;
+  error_code: "source_unavailable" | null;
+}
+export interface DiscoverResponse extends Page<Tender & { freshly_fetched: boolean }> {
+  requested_at: string;
+  mode: "live" | "recorded";
+  sources: DiscoverSource[];
+  result_count: number;
+}
 export interface Revision {
   revision_id: number;
   revision_index: number;

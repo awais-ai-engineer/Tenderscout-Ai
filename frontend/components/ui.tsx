@@ -156,7 +156,11 @@ export function Facts({ value }: { value: Json }) {
     </span>
   );
 }
-export function TenderTable({ tenders }: { tenders: Tender[] }) {
+export function TenderTable({
+  tenders,
+}: {
+  tenders: (Tender & { freshly_fetched?: boolean })[];
+}) {
   if (!tenders.length)
     return (
       <Empty title="No tenders found">
@@ -186,7 +190,14 @@ export function TenderTable({ tenders }: { tenders: Tender[] }) {
                   {tender.organization || "Authority not provided"}
                 </span>
               </td>
-              <td>{source(tender.source)}</td>
+              <td>
+                {source(tender.source)}
+                {tender.freshly_fetched !== undefined && (
+                  <span className="subtext">
+                    {tender.freshly_fetched ? "Fresh result" : "Recorded result"}
+                  </span>
+                )}
+              </td>
               <td>{tender.category || "Not provided"}</td>
               <td className="nowrap">{date(tender.deadline)}</td>
               <td>

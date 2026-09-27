@@ -43,13 +43,13 @@ MONTHS = (
 logger = logging.getLogger(__name__)
 
 
-def fetch_listing(client: httpx.Client) -> str:
+def fetch_listing(client: httpx.Client, *, timeout: float = 20.0) -> str:
     logger.info("event=scraper_start source=%s", SOURCE.slug)
     headers = {"User-Agent": USER_AGENT}
     try:
         robots = client.get(
             urljoin(str(SOURCE.base_url), "robots.txt"),
-            timeout=20.0,
+            timeout=timeout,
             headers=headers,
             follow_redirects=False,
         )
@@ -60,7 +60,7 @@ def fetch_listing(client: httpx.Client) -> str:
             if not rules.can_fetch(USER_AGENT, LISTING_URL):
                 raise SourceFetchError("Listing access is disallowed by robots.txt")
         response = client.get(
-            LISTING_URL, timeout=20.0, headers=headers, follow_redirects=False
+            LISTING_URL, timeout=timeout, headers=headers, follow_redirects=False
         )
         response.raise_for_status()
     except httpx.HTTPError as error:

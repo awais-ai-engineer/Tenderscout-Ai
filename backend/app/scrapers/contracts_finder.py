@@ -26,7 +26,7 @@ BATCH_LIMIT = 20
 logger = logging.getLogger(__name__)
 
 
-def fetch_releases(client: httpx.Client) -> object:
+def fetch_releases(client: httpx.Client, *, timeout: float = 30.0) -> object:
     logger.info("event=scraper_start source=%s", SOURCE.slug)
     try:
         response = client.get(
@@ -36,7 +36,7 @@ def fetch_releases(client: httpx.Client) -> object:
                 "User-Agent": "TenderScoutAI/0.1 (public procurement reader)",
                 "Accept": "application/json",
             },
-            timeout=30.0,
+            timeout=timeout,
             follow_redirects=False,
         )
         response.raise_for_status()

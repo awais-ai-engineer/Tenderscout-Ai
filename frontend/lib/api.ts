@@ -64,6 +64,8 @@ export const api = {
   dashboard: () => request<T.Dashboard>("/dashboard/summary"),
   tenders: (params: Params = {}) =>
     request<T.Page<T.Tender>>(`/tenders${query(params)}`),
+  discover: (params: Params = {}) =>
+    request<T.DiscoverResponse>(`/discover${query(params)}`, undefined, 30000),
   tender: (id: string | number) => request<T.TenderDetail>(`/tenders/${id}`),
   documents: (id: string | number, cursor?: number) =>
     request<T.Page<T.TenderDocument>>(

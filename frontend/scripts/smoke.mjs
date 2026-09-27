@@ -44,7 +44,8 @@ const fixture = createServer((req, res) => {
     );
     return;
   }
-  const path = new URL(req.url, "http://localhost").pathname;
+  const url = new URL(req.url, "http://localhost");
+  const path = url.pathname;
   let data;
   if (path === "/api/v1/dashboard/summary")
     data = {
@@ -54,6 +55,20 @@ const fixture = createServer((req, res) => {
       upcoming_deadlines: [],
       recent_changes: [],
       recent_runs: [],
+    };
+  else if (path === "/api/v1/discover")
+    data = {
+      items: url.searchParams.get("q") ? [{ ...tender, freshly_fetched: true }] : [],
+      next_cursor: null,
+      requested_at: "2026-09-27T00:00:00Z",
+      mode: url.searchParams.get("q") ? "live" : "recorded",
+      sources: url.searchParams.get("q")
+        ? [
+            { source: "contracts-finder", status: "success", fetched_at: "2026-09-27T00:00:00Z", error_code: null },
+            { source: "find-a-tender", status: "unavailable", fetched_at: null, error_code: "source_unavailable" },
+          ]
+        : [],
+      result_count: url.searchParams.get("q") ? 1 : 0,
     };
   else if (path === "/api/v1/tenders/1") data = tender;
   else if (
@@ -128,6 +143,7 @@ try {
   const checks = [
     ["/", "No upcoming deadlines"],
     ["/discover", "No tenders found"],
+    ["/discover?q=cloud", "temporarily unavailable"],
     ["/matches", "Match overview coming soon"],
     ["/saved", "Saving is not available yet"],
     ["/alerts", "Alerts are not available yet"],
@@ -154,6 +170,10 @@ try {
   }
   const overviewHtml = await (await fetch(base)).text();
   assert.ok(!overviewHtml.includes('href="/pipeline"'), "Pipeline is exposed in customer navigation");
+  const discoverHtml = await (await fetch(`${base}/discover?q=cloud`)).text();
+  assert.ok(discoverHtml.includes('name="q"'), "Discover search does not submit q");
+  assert.ok(discoverHtml.includes("Fresh result"), "Freshness is not rendered");
+  assert.ok(!discoverHtml.includes("Pipeline"), "Discover exposes operational wording");
   const oldList = await (await fetch(`${base}/tenders`)).text();
   assert.match(oldList, /<meta[^>]+http-equiv="refresh"[^>]+\/discover/i);
   unavailable = true;
@@ -165,7 +185,7 @@ try {
     );
   }
   console.log(
-    `Passed ${checks.length + 6} production SSR smoke checks using synthetic test-only API responses.`,
+    `Passed ${checks.length + 9} production SSR smoke checks using synthetic test-only API responses.`,
   );
 } finally {
   child.kill();

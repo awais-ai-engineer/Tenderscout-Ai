@@ -484,6 +484,35 @@ tbody tr:hover {
 .discover-filters .field:first-child {
   flex-basis: 280px;
 }
+.discovery-summary {
+  display: flex;
+  align-items: baseline;
+  gap: 14px;
+  margin: 0 0 12px;
+  color: var(--muted);
+}
+.discovery-summary strong {
+  color: var(--ink);
+}
+.source-status {
+  list-style: none;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin: 0 0 18px;
+  padding: 0;
+}
+.source-status li {
+  padding: 8px 12px;
+  border: 1px solid #d9e8df;
+  border-radius: 7px;
+  background: #f1f8f3;
+  font-size: 12px;
+}
+.source-status .source-warning {
+  border-color: #edddbc;
+  background: #fff9eb;
+}
 .shell-actions {
   display: flex;
   gap: 12px;

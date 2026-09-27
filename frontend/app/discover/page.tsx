@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { api, query } from "@/lib/api";
-import { positive } from "@/lib/format";
+import { positive, source as sourceLabel } from "@/lib/format";
 import {
   ErrorState,
   Heading,
@@ -18,7 +18,7 @@ export default async function DiscoverPage({
   const text = (name: string) =>
     typeof params[name] === "string" ? params[name] : "";
   const filters = {
-    search: text("search"),
+    q: text("q"),
     source: text("source"),
     organization: text("organization"),
     category: text("category"),
@@ -29,23 +29,26 @@ export default async function DiscoverPage({
   };
   let data, error;
   try {
-    data = await api.tenders(filters);
+    data = await api.discover(filters);
   } catch (err) {
     error = err;
   }
   return (
     <>
       <Heading eyebrow="Opportunity discovery" title="Discover opportunities">
-        Search recorded procurement notices, compare deadlines, and review source evidence. Results reflect the notices already available in TenderScout.
+        Search Contracts Finder and Find a Tender, compare deadlines, and review
+        source evidence. A search refreshes a bounded public listing from each
+        selected source; browsing without a query uses recorded opportunities.
       </Heading>
       <form className="filters discover-filters" action="/discover">
         <div className="field">
-          <label htmlFor="search">Search tenders</label>
+          <label htmlFor="search">Search opportunities</label>
           <input
             id="search"
-            name="search"
-            defaultValue={text("search")}
-            placeholder="Title or authority…"
+            name="q"
+            defaultValue={text("q")}
+            placeholder="Title, authority, category or description…"
+            minLength={3}
             maxLength={255}
           />
         </div>
@@ -66,7 +69,7 @@ export default async function DiscoverPage({
             defaultValue={text("deadline_before")}
           />
         </div>
-        <button type="submit">Apply filters</button>
+        <button type="submit">Search opportunities</button>
         <Link className="text-link" href="/discover">
           Reset
         </Link>
@@ -76,13 +79,40 @@ export default async function DiscoverPage({
       ) : (
         data && (
           <>
-            <Panel title="Recorded opportunities">
+            <div className="discovery-summary" role="status">
+              <strong>
+                {data.result_count} {data.result_count === 1 ? "result" : "results"} shown
+              </strong>
+              <span>
+                {data.mode === "live"
+                  ? `Searched ${data.sources.length} ${data.sources.length === 1 ? "source" : "sources"}`
+                  : "Recorded results"}
+              </span>
+            </div>
+            {data.sources.length > 0 && (
+              <ul className="source-status" aria-label="Source freshness">
+                {data.sources.map((item) => (
+                  <li
+                    key={item.source}
+                    className={item.status === "unavailable" ? "source-warning" : ""}
+                  >
+                    <strong>{sourceLabel(item.source)}</strong>{" "}
+                    {item.status === "success"
+                      ? "refreshed for this search"
+                      : "temporarily unavailable; recorded results may still appear"}
+                  </li>
+                ))}
+              </ul>
+            )}
+            <Panel
+              title={data.mode === "live" ? "Search results" : "Recorded opportunities"}
+            >
               <TenderTable tenders={data.items} />
             </Panel>
             <NextPage
               href={
                 data.next_cursor
-                  ? `/discover${query({ search: text("search"), source: text("source"), deadline_before: text("deadline_before"), cursor: data.next_cursor })}`
+                  ? `/discover${query({ source: text("source"), deadline_before: text("deadline_before"), cursor: data.next_cursor })}`
                   : null
               }
             />

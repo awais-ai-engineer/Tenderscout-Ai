@@ -1,6 +1,6 @@
 from fastapi import APIRouter
 
-from app.api.v1 import actions, pipeline, tenders
+from app.api.v1 import actions, discover, pipeline, tenders
 from app.schemas.product import ErrorEnvelope
 
 router = APIRouter(
@@ -10,5 +10,5 @@ router = APIRouter(
         for status in (400, 404, 409, 413, 422, 500, 502, 503)
     },
 )
-for child in (tenders.router, actions.router, pipeline.router):
+for child in (tenders.router, discover.router, actions.router, pipeline.router):
     router.include_router(child)

@@ -2,7 +2,7 @@
 
 from datetime import UTC, datetime
 
-from sqlalchemy import exists, func, literal, or_, select, union_all
+from sqlalchemy import case, exists, func, literal, or_, select, union_all
 from sqlalchemy.orm import Session
 
 from app.ai.schemas import ANALYSIS_SCHEMA_VERSION, TenderAnalysisOutput
@@ -144,6 +144,42 @@ def tenders(
     if deadline_after:
         query = query.where(Tender.deadline >= deadline_after)
     return page(engine, query, Tender.id, cursor, limit)
+
+
+def discover_tenders(
+    engine,
+    *,
+    search: str,
+    limit: int,
+    source=None,
+    organization=None,
+    category=None,
+    deadline_before=None,
+):
+    """A bounded, deterministic read of stored matches after live refresh."""
+    title = Tender.title.icontains(search, autoescape=True)
+    buyer = Tender.organization.icontains(search, autoescape=True)
+    category_match = Tender.category.icontains(search, autoescape=True)
+    description = Tender.description.icontains(search, autoescape=True)
+    query = tender_query().where(or_(title, buyer, category_match, description))
+    if source:
+        query = query.where(Source.slug == source)
+    if organization:
+        query = query.where(
+            Tender.organization.icontains(organization, autoescape=True)
+        )
+    if category:
+        query = query.where(Tender.category.icontains(category, autoescape=True))
+    if deadline_before:
+        query = query.where(Tender.deadline <= deadline_before)
+    rank = case((title, 0), (buyer, 1), (category_match, 2), else_=3)
+    with Session(engine) as session:
+        return [
+            dict(row)
+            for row in session.execute(
+                query.order_by(rank, Tender.id.desc()).limit(limit)
+            ).mappings()
+        ]
 
 
 def analysis_list(engine, tender_id, cursor=None, limit=20):

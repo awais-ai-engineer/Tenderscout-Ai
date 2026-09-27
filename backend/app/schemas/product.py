@@ -55,6 +55,26 @@ class TenderSummary(Response):
     latest_analysis_status: str | None
 
 
+class DiscoverTender(TenderSummary):
+    freshly_fetched: bool
+
+
+class DiscoverSource(Response):
+    source: SourceSlug
+    status: Literal["success", "unavailable"]
+    fetched_at: datetime | None = None
+    error_code: Literal["source_unavailable"] | None = None
+
+
+class DiscoverResponse(Response):
+    items: list[DiscoverTender] = Field(max_length=100)
+    next_cursor: int | None = None
+    requested_at: datetime
+    mode: Literal["live", "recorded"]
+    sources: list[DiscoverSource]
+    result_count: int
+
+
 class AnalysisSummary(Response):
     id: ID
     document_version_id: ID
