@@ -1,9 +1,23 @@
 # TenderScout AI
 
-TenderScout AI is intended to help teams discover and evaluate public tenders.
-The backend currently includes FastAPI, environment configuration, PostgreSQL
-models and migrations for tenders, document analysis, company matching and document-scoped
-RAG, revision history, and a Redis/Celery processing pipeline.
+TenderScout AI collects public procurement notices from Find a Tender and Contracts
+Finder, preserves document/revision history, and presents evidence-backed analysis,
+document-scoped Q&A and deterministic company matching in a Next.js dashboard.
+Matching measures heuristic alignment; company facts are user assertions and exact
+citations establish provenance, not semantic correctness.
+
+Stack: Python 3.12, FastAPI, SQLAlchemy/Alembic, PostgreSQL/pgvector, Redis/Celery,
+OpenAI structured output/embeddings, Next.js 16.3.5, React 19.3.0 and TypeScript.
+There is no authentication or tenant isolation; this is a trusted-workspace project,
+not a public multi-user deployment.
+
+- [Run the API and dashboard](#product-api-and-dashboard-task-11)
+- [Local infrastructure and migrations](#development-setup)
+- [Architecture, CI and deployment considerations](#integration-and-deployment-task-12)
+- [Exact validation evidence and blockers](docs/task12-report.md)
+
+Local automated checks are recorded in the report. GitHub-hosted CI has not yet
+been observed for Task 12; no deployment or accuracy claims are implied.
 
 ## Structure
 
@@ -19,7 +33,10 @@ RAG, revision history, and a Redis/Celery processing pipeline.
 - `backend/alembic`: versioned database migrations.
 - `backend/app/main.py`: application and resource lifecycle.
 - `backend/app/worker`: Celery configuration, tasks and process lifecycle.
-- `compose.yaml`: local PostgreSQL/Redis and optional worker/Beat services.
+- `frontend/`: Next.js dashboard and typed product API client.
+- `backend/integration/`: opt-in PostgreSQL-specific checks.
+- `.github/workflows/ci.yml`: backend, frontend and PostgreSQL CI jobs.
+- `compose.yaml`: PostgreSQL/Redis and optional API/frontend/worker/Beat services.
 
 ## Development setup
 
@@ -733,7 +750,7 @@ continue to preserve known values. Each revision contains the full resulting sta
 Last-seen-only updates create no revision. A → B → A creates three revisions:
 `(tender_id, revision_index)` is unique, but snapshot hashes are not unique.
 
-SHA-256 covers UTF-8 canonical JSON of the eleven source/business fields listed
+SHA-256 covers UTF-8 canonical JSON of the ten source/business fields listed
 above, including the source content hash independently of the new snapshot hash.
 Keys are sorted, separators compact, Unicode unescaped, and datetimes represented
 in UTC with six fractional digits and a `Z` suffix. Naive timestamps are treated
@@ -1198,3 +1215,97 @@ Task 12 still needs full deployed browser and infrastructure validation.
 
 The [Task 11 completion report](docs/task11-report.md) records the file inventory,
 validation results and remaining live checks.
+
+## Integration and deployment (Task 12)
+
+```mermaid
+flowchart LR
+    Sources[Public tender sources] --> Ingest[Source adapters / ingestion]
+    Redis[Redis: Celery broker] --> Worker[Celery worker]
+    Beat[One Beat scheduler] --> Redis
+    Worker --> Ingest
+    Worker --> Documents[Document discovery / download / extraction]
+    Worker --> Analysis[Structured analysis]
+    Worker --> Index[Chunking / embeddings]
+    Worker --> Compare[Matching / change detection]
+    Ingest --> DB[(PostgreSQL + pgvector: durable authority)]
+    Documents <--> DB
+    Analysis <--> DB
+    Index <--> DB
+    Compare <--> DB
+    UI[Next.js dashboard] --> API[FastAPI /api/v1]
+    API <--> DB
+    API --> Redis
+    API --> QA[Document-scoped Q&A]
+    QA <--> DB
+    Analysis --> Provider[Configured AI provider]
+    Index --> Provider
+    QA --> Provider
+```
+
+Analysis and matching use stored structured facts; Q&A retrieves stored chunks.
+Redis transports work; PostgreSQL holds domain and operational outcomes. Committing
+a run and publishing to the broker are not one transaction, and delivery is not
+exactly once. The existing idempotency and explicit stale-run maintenance still apply.
+
+### CI and focused integration checks
+
+CI runs on pushes and pull requests to `main`, with manual dispatch available.
+Python 3.12 checks dependencies, Ruff and the full unit suite. Node 24 runs clean
+installation, lint, generated-type checking, build and the synthetic SSR smoke test.
+A separate PostgreSQL 17/pgvector service applies all migrations from an empty CI
+database and runs five focused integration tests: schema/vector type, timezone and
+product SQL, vector distance/index readiness, the partial unique active-run index,
+and a real conflicting row lock. Jobs do not scrape sources or call AI providers.
+Action revisions are pinned, permissions are read-only, and CI credentials are
+test-only values for the disposable service. A workflow file is not evidence of a
+successful hosted run; see the report for the observed status.
+
+Run the PostgreSQL tests only against a dedicated disposable database named
+`tenderscout_*_test`, using environment variables rather than the ordinary `.env`:
+
+```powershell
+# Set POSTGRES_HOST/PORT/USER/PASSWORD and POSTGRES_DB to the disposable database.
+$env:PYTHONPATH = "backend"
+python -m alembic -c backend/alembic.ini upgrade head
+$env:TENDERSCOUT_RUN_POSTGRES_TESTS = "1"
+python -m unittest discover -s backend/integration -v
+```
+
+Without the opt-in, the five tests explicitly skip. With it, connection/schema
+failures fail the suite. The suite requires head `0007`, never drops tables or runs
+downgrades, rolls back fixtures, and removes only its identified committed lock-test
+row. Use an otherwise empty test database and do not run this against real tender
+history. Existing SQLite unit tests remain independently runnable without services.
+
+### Deployment considerations
+
+For local Docker, configure the ignored root `.env` with a generated development
+password, then run `docker compose up -d --wait postgres redis`. Apply migrations
+explicitly with `python -m alembic -c backend/alembic.ini upgrade head` before
+`docker compose --profile product up -d --build api frontend`. Add processing with
+`docker compose --profile pipeline up -d --build worker beat`. The API never applies
+migrations at startup. Historical reads do not require a worker or broker.
+
+Required connection values are documented in `.env.example`. Set the browser-facing
+`NEXT_PUBLIC_API_BASE_URL` before building the frontend; container-only
+`API_INTERNAL_BASE_URL` is server-side. Neither URL should contain credentials.
+AI settings are needed only for provider work. For deliberate live provider
+validation, require both a non-placeholder key and
+`TENDERSCOUT_RUN_LIVE_PROVIDER_TESTS=1`; do not trigger an AI-capable pipeline as a
+validation shortcut without that opt-in. This flag is a validation policy, not a
+new runtime feature gate on ordinary application actions.
+
+Before hosting, provide HTTPS/reverse proxy configuration, private PostgreSQL and
+Redis networking, managed secrets, and an access boundary: authentication and
+multi-tenancy are **not implemented**, and CORS is not authentication. Preserve
+PostgreSQL, Redis and document volumes and own backup/restore procedures. Run one
+Beat scheduler; size worker concurrency for PDF memory and provider rate limits
+(the local default is two). Keep credentials out of public Next variables and build
+contexts. Preserve the 150-second synchronous Ask Tender timeout expectation at
+the proxy. Backend and frontend images use non-root users; image builds and volume
+behavior require runtime verification on a working Docker host.
+
+No hosted deployment or local performance benchmark is claimed. The
+[Task 12 report](docs/task12-report.md) distinguishes verified checks, failures,
+blocked integration work and checks that were not run.
