@@ -1,17 +1,17 @@
 import Link from "next/link";
 import { api } from "@/lib/api";
 import { date } from "@/lib/format";
-import { Empty, ErrorState, Heading, Panel, RunTable } from "@/components/ui";
+import { Empty, ErrorState, Heading, Panel } from "@/components/ui";
 export const dynamic = "force-dynamic";
-export default async function DashboardPage() {
+export default async function OverviewPage() {
   let data;
   try {
     data = await api.dashboard();
   } catch (error) {
     return (
       <>
-        <Heading title="Workspace overview">
-          A clear view of your procurement activity.
+        <Heading title="Overview">
+          Your recorded opportunities, upcoming deadlines, and recent changes.
         </Heading>
         <ErrorState error={error} />
       </>
@@ -20,14 +20,14 @@ export default async function DashboardPage() {
   return (
     <>
       <Heading
-        title="Workspace overview"
+        title="Overview"
         action={
-          <Link className="button" href="/tenders">
-            Explore tenders <span aria-hidden="true">↗</span>
+          <Link className="button" href="/discover">
+            Discover opportunities <span aria-hidden="true">↗</span>
           </Link>
         }
       >
-        A clear view of your procurement activity.
+        Your recorded opportunities, upcoming deadlines, and recent changes.
       </Heading>
       <section className="intro-banner">
         <div>
@@ -63,8 +63,8 @@ export default async function DashboardPage() {
         <Panel
           title="Upcoming deadlines"
           action={
-            <Link href="/tenders" className="text-link">
-              View tenders →
+            <Link href="/discover" className="text-link">
+              Discover opportunities →
             </Link>
           }
         >
@@ -114,16 +114,6 @@ export default async function DashboardPage() {
           )}
         </Panel>
       </div>
-      <Panel
-        title="Recent pipeline activity"
-        action={
-          <Link className="text-link" href="/pipeline">
-            View pipeline →
-          </Link>
-        }
-      >
-        <RunTable runs={data.recent_runs} />
-      </Panel>
     </>
   );
 }

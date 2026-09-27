@@ -17,7 +17,7 @@ export function Heading({
   return (
     <header className="page-heading">
       <div>
-        <p className="eyebrow">{eyebrow || "TenderScout workspace"}</p>
+        <p className="eyebrow">{eyebrow || "Procurement intelligence"}</p>
         <h1>{title}</h1>
         {children && <p className="lede">{children}</p>}
       </div>
@@ -160,7 +160,7 @@ export function TenderTable({ tenders }: { tenders: Tender[] }) {
   if (!tenders.length)
     return (
       <Empty title="No tenders found">
-        Try changing your filters, or run a source pipeline to collect tenders.
+        Try another search or filter. Recorded opportunities will appear here when available.
       </Empty>
     );
   return (

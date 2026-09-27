@@ -4,8 +4,8 @@ export default function NotFound() {
     <section className="empty">
       <h1>Record not found</h1>
       <p>This record or page is unavailable.</p>
-      <Link className="button" href="/tenders">
-        Browse tenders
+      <Link className="button" href="/discover">
+        Discover opportunities
       </Link>
     </section>
   );

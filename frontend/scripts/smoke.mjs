@@ -127,7 +127,11 @@ try {
   assert.ok(ready, `Next startup timed out: ${log}`);
   const checks = [
     ["/", "No upcoming deadlines"],
-    ["/tenders", "No tenders found"],
+    ["/discover", "No tenders found"],
+    ["/matches", "Match overview coming soon"],
+    ["/saved", "Saving is not available yet"],
+    ["/alerts", "Alerts are not available yet"],
+    ["/settings", "Data &amp; product preferences"],
     ["/companies", "No company profiles"],
     ["/companies/new", "Create company profile"],
     ["/pipeline", "No pipeline runs"],
@@ -148,8 +152,12 @@ try {
       `${path} is missing the main landmark`,
     );
   }
+  const overviewHtml = await (await fetch(base)).text();
+  assert.ok(!overviewHtml.includes('href="/pipeline"'), "Pipeline is exposed in customer navigation");
+  const oldList = await (await fetch(`${base}/tenders`)).text();
+  assert.match(oldList, /<meta[^>]+http-equiv="refresh"[^>]+\/discover/i);
   unavailable = true;
-  for (const path of ["/", "/tenders", "/companies", "/pipeline"]) {
+  for (const path of ["/", "/discover", "/companies", "/pipeline"]) {
     const html = await (await fetch(base + path)).text();
     assert.ok(
       html.includes("Data is temporarily unavailable"),
@@ -157,7 +165,7 @@ try {
     );
   }
   console.log(
-    `Passed ${checks.length + 4} production SSR smoke checks using synthetic test-only API responses.`,
+    `Passed ${checks.length + 6} production SSR smoke checks using synthetic test-only API responses.`,
   );
 } finally {
   child.kill();

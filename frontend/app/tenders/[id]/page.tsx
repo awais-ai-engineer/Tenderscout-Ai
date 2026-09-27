@@ -46,8 +46,8 @@ export default async function TenderPage({
   }
   return (
     <>
-      <Link className="back-link" href="/tenders">
-        ← All tenders
+      <Link className="back-link" href="/discover">
+        ← Discover opportunities
       </Link>
       <Heading eyebrow={source(tender.source)} title={tender.title}>
         {tender.organization || "Authority not provided"} ·{" "}

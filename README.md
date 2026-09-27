@@ -1142,7 +1142,10 @@ the HTTP adapter. Run status is the durable source of truth after enqueueing.
 
 The dashboard uses Next.js **16.3.5**, React **19.3.0**, TypeScript and ESLint,
 without a component framework. `/` shows actual counts and recent activity;
-`/tenders` provides search/source/deadline filters and cursor links.
+The customer navigation links Overview, Discover, My Matches, Saved Tenders,
+Companies, Alerts and Settings. `/discover` searches recorded tenders using
+existing search/source/deadline filters and cursor links; it is not live provider
+search. The former `/tenders` list URL redirects to `/discover`.
 `/tenders/[id]` has Overview, Analysis, Documents, Changes, Ask Tender and Matches
 tabs. Large tab contents are fetched only when selected. Analysis facts expose
 expandable quotes; documents expose version state without paths; change links open
@@ -1154,7 +1157,8 @@ requires selecting a version indexed for the configured embedding model. There a
 explicit empty, loading, insufficient-evidence and error states; no demo data is
 substituted when the API is empty or unavailable.
 
-`/pipeline` offers the two supported sources and recent runs; `/pipeline/[id]`
+The pipeline routes remain available internally and are absent from customer
+navigation. `/pipeline` offers the two supported sources and recent runs; `/pipeline/[id]`
 shows attempts, safe failure reasons and metrics. Active runs poll every five
 seconds and stop when terminal or unmounted. Shared API URLs/error handling are
 centralized in `frontend/lib/api.ts`. Read pages use Server Components; forms,
