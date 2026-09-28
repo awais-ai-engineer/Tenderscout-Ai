@@ -1,0 +1,25 @@
+{
+  "notices": [
+    {
+      "publication-number": "123456-2026",
+      "notice-title": {"eng": ["Cloud infrastructure services"]},
+      "description-proc": {"eng": ["Managed hosting and infrastructure support."]},
+      "buyer-name": {"eng": ["European Example Agency"]},
+      "classification-cpv": ["72500000"],
+      "buyer-country": ["BEL"],
+      "publication-date": "2026-09-25",
+      "deadline-receipt-tender-date-lot": ["2026-10-31", "2026-11-04"]
+    },
+    {
+      "publication-number": "654321-2026",
+      "notice-title": {"fra": ["Services de conseil"]},
+      "buyer-name": {"fra": ["Autorité publique"]},
+      "classification-cpv": ["79410000"],
+      "buyer-country": ["FRA"],
+      "publication-date": "2026-09-24"
+    }
+  ],
+  "totalNoticeCount": 2,
+  "iterationNextToken": null,
+  "timedOut": false
+}

@@ -56,12 +56,15 @@ class WorkerConfigTests(unittest.TestCase):
             self.assertNotIn(secret_url, rendering)
         self.assertNotIn(password, repr(settings))
 
-    def test_schedules_disabled_or_at_least_hourly(self):
+    def test_registry_driven_schedules_and_minimum_interval(self):
         config = celery_config(self.settings(find_a_tender_schedule_minutes=0))
-        self.assertEqual(set(config["beat_schedule"]), {"contracts-finder"})
+        self.assertEqual(set(config["beat_schedule"]), {"contracts-finder", "ted"})
         self.assertEqual(
             config["beat_schedule"]["contracts-finder"]["schedule"].total_seconds(),
-            3600,
+            900,
+        )
+        self.assertEqual(
+            config["beat_schedule"]["ted"]["schedule"].total_seconds(), 1800
         )
         self.assertEqual(
             config["beat_schedule"]["contracts-finder"]["task"],
@@ -72,6 +75,7 @@ class WorkerConfigTests(unittest.TestCase):
                 self.settings(
                     find_a_tender_schedule_minutes=0,
                     contracts_finder_schedule_minutes=0,
+                    ted_schedule_minutes=0,
                 )
             )["beat_schedule"],
             {},

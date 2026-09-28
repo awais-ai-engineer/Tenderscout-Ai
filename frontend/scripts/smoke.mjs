@@ -66,6 +66,7 @@ const fixture = createServer((req, res) => {
         ? [
             { source: "contracts-finder", status: "success", fetched_at: "2026-09-27T00:00:00Z", error_code: null },
             { source: "find-a-tender", status: "unavailable", fetched_at: null, error_code: "source_unavailable" },
+            { source: "ted", status: "success", fetched_at: "2026-09-27T00:00:00Z", error_code: null },
           ]
         : [],
       result_count: url.searchParams.get("q") ? 1 : 0,
@@ -173,6 +174,8 @@ try {
   const discoverHtml = await (await fetch(`${base}/discover?q=cloud`)).text();
   assert.ok(discoverHtml.includes('name="q"'), "Discover search does not submit q");
   assert.ok(discoverHtml.includes("Fresh result"), "Freshness is not rendered");
+  assert.ok(discoverHtml.includes("Searched 3 sources"), "Three-source search summary is not rendered");
+  assert.ok(discoverHtml.includes("TED"), "TED source status is not rendered");
   assert.ok(!discoverHtml.includes("Pipeline"), "Discover exposes operational wording");
   const oldList = await (await fetch(`${base}/tenders`)).text();
   assert.match(oldList, /<meta[^>]+http-equiv="refresh"[^>]+\/discover/i);
@@ -185,7 +188,7 @@ try {
     );
   }
   console.log(
-    `Passed ${checks.length + 9} production SSR smoke checks using synthetic test-only API responses.`,
+    `Passed ${checks.length + 11} production SSR smoke checks using synthetic test-only API responses.`,
   );
 } finally {
   child.kill();

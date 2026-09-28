@@ -11,8 +11,9 @@ from sqlalchemy.orm import Session
 
 from app.models import PipelineRun, PipelineStageRun
 from app.services.change_rules import utc_datetime
+from app.sources import SOURCE_CONNECTORS
 
-SOURCES = ("find-a-tender", "contracts-finder")
+SOURCES = tuple(SOURCE_CONNECTORS)
 ACTIVE = ("queued", "running")
 TERMINAL = ("completed", "skipped", "failed")
 

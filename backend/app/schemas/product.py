@@ -8,7 +8,7 @@ from app.schemas.company import CompanyInput
 from app.services.retrieval import normalize_question
 
 ID = Annotated[int, Field(gt=0)]
-SourceSlug = Literal["contracts-finder", "find-a-tender"]
+SourceSlug = Literal["contracts-finder", "find-a-tender", "ted"]
 
 
 class Response(BaseModel):

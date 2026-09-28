@@ -21,7 +21,7 @@ class PipelineRun(Base):
     __table_args__ = (
         CheckConstraint("run_type = 'source_pipeline'", name="ck_pipeline_type"),
         CheckConstraint(
-            "source_slug IN ('find-a-tender', 'contracts-finder')",
+            "source_slug IN ('find-a-tender', 'contracts-finder', 'ted')",
             name="ck_pipeline_source",
         ),
         CheckConstraint(

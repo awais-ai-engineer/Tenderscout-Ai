@@ -47,7 +47,9 @@ class PipelineStepTests(PipelineDatabaseMixin, unittest.TestCase):
             patch.object(
                 find_tender,
                 "fetch_listing",
-                side_effect=lambda client: self.assertEqual(self.transactions, 0),
+                side_effect=lambda client, **kwargs: self.assertEqual(
+                    self.transactions, 0
+                ),
             ),
             patch.object(
                 find_tender, "parse_listing", return_value=ParsedListing([self.record])

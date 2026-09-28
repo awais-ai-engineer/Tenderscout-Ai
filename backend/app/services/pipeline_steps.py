@@ -22,9 +22,8 @@ from app.models import (
 )
 from app.rag.chunking import CHUNKER_VERSION
 from app.rag.config import ChunkConfig, EmbeddingConfig
-from app.scrapers import contracts_finder, find_tender
+from app.scrapers import contracts_finder
 from app.scrapers.contracts_finder_documents import discover_documents
-from app.scrapers.records import ParsedListing
 from app.services import change_rules
 from app.services.analysis import analyze_document, prepare_document
 from app.services.change_detection import compare_document
@@ -33,6 +32,7 @@ from app.services.indexing import index_document
 from app.services.ingestion import ingest_tenders
 from app.services.matching import MATCHER_VERSION, match_tender
 from app.services.pipeline import Outcome, Reason, Stage, StageSpec
+from app.sources import connector
 
 
 def config_key(settings) -> str:
@@ -62,23 +62,16 @@ def config_key(settings) -> str:
 
 
 def ingest_step(engine, row, run, settings) -> Outcome:
+    source = connector(run.source_slug)
     with httpx.Client(trust_env=False, follow_redirects=False) as client:
-        if run.source_slug == "find-a-tender":
-            source = find_tender.SOURCE
-            listing = find_tender.parse_listing(find_tender.fetch_listing(client))
-        else:
-            source = contracts_finder.SOURCE
-            listing = contracts_finder.parse_releases(
-                contracts_finder.fetch_releases(client)
-            )
-    limited = max(0, len(listing.records) - settings.pipeline_max_tenders)
-    listing = ParsedListing(
-        listing.records[: settings.pipeline_max_tenders],
-        listing.failed,
-        listing.skipped + limited,
-    )
+        listing = source.refresh(
+            client,
+            limit=settings.pipeline_max_tenders,
+            timeout=30.0,
+        )
+    limited = listing.limited
     ids: set[int] = set()
-    result = ingest_tenders(engine, source, listing, affected_ids=ids)
+    result = ingest_tenders(engine, source.source, listing, affected_ids=ids)
     return Outcome(
         metrics=asdict(result) | {"limited": limited, "scope_count": len(ids)},
         children=[
@@ -164,7 +157,7 @@ def eligible_children(engine, version_ids: list[int], key: str) -> list[StageSpe
 
 
 def documents_step(engine, row, run, settings) -> Outcome:
-    if run.source_slug != "contracts-finder":
+    if not connector(run.source_slug).supports_documents:
         return Outcome("skipped", reason=Reason.UNSUPPORTED)
     if not row.scope_ids:
         return Outcome("skipped", reason=Reason.NO_WORK)

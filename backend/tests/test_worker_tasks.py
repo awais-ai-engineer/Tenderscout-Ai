@@ -127,6 +127,16 @@ class WorkerTaskTests(PipelineDatabaseMixin, unittest.TestCase):
         self.assertEqual(calls, [p.Stage.INGEST, p.Stage.DOCUMENTS])
         self.assertEqual([row.attempt for row in self.rows(result["run_id"])], [1, 1])
 
+    def test_scheduled_ted_refresh_records_durable_status_without_customer_action(self):
+        with patch.object(
+            tasks, "execute_stage", return_value=p.Outcome(metrics={"discovered": 0})
+        ):
+            result = tasks.trigger_source_task.apply(args=["ted"]).get()
+        self.assertEqual((result["source"], result["status"]), ("ted", "completed"))
+        status = p.run_status(self.engine, result["run_id"])
+        self.assertEqual(status["source"], "ted")
+        self.assertEqual(status["stages"][0]["status"], "completed")
+
     def test_duplicate_while_running_does_not_execute_provider_again(self):
         root = self.root()
 

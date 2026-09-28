@@ -839,7 +839,8 @@ results are ignored and no result backend is required. An optional
 `CELERY_BROKER_URL` defaults to the existing Redis settings with an escaped password.
 Both overrides are secret settings. Do not dump raw Celery configuration or URLs.
 
-Migration **0007** adds:
+Migration **0007** adds the pipeline tables. Migration **0008** extends the
+pipeline source constraint to include TED:
 
 | Table | Fields |
 | --- | --- |
@@ -856,7 +857,7 @@ attempt-history rows. Source stages use entity type `source` and ID 0; the run s
 the actual source slug. Task messages contain only a stage ID, or a source slug for
 the lightweight Beat trigger. No source text, vectors or provider output is queued.
 
-**Work and bounds.** Ingestion uses the existing two adapters and returns affected
+**Work and bounds.** Ingestion uses the registered source connectors and returns affected
 tender IDs through an optional internal collector populated only after commit.
 Existing public counters and Task 9 revision capture remain intact. The default
 limit is 100 tenders per batch (`PIPELINE_MAX_TENDERS`, maximum 500); truncation is
@@ -867,7 +868,8 @@ filters document records to those affected tender IDs, and uses the existing sec
 PDF processing service. It processes at most `PIPELINE_MAX_DOCUMENTS` records and
 selects at most that many latest extracted, nonblank document versions from those
 tenders (default 100, maximum 500). Find a Tender documents are explicitly skipped.
-Metadata-discovery or per-document failures remain visible in stage counters and
+Find a Tender and TED document discovery are explicitly skipped because those
+connectors do not yet provide document manifests. Metadata-discovery or per-document failures remain visible in stage counters and
 make the run partial while eligible documents continue. Fetching the listing again
 can miss a notice that moved out of that source batch; this is not a point-in-time
 document manifest. Bounds are reported, not presented as complete source coverage.
@@ -971,9 +973,11 @@ celery -A app.worker.celery_app:celery_app worker --loglevel=INFO --concurrency=
 celery -A app.worker.celery_app:celery_app beat --loglevel=INFO --schedule=.data/celerybeat-schedule
 ```
 
-Run **one Beat instance**. Both schedule settings default to 60 minutes:
-`FIND_A_TENDER_SCHEDULE_MINUTES` and `CONTRACTS_FINDER_SCHEDULE_MINUTES`; 0 disables
-an entry, enabled values must be 60–10080 minutes. Beat enqueues lightweight trigger
+Run **one Beat instance**. Contracts Finder and Find a Tender default to 15 minutes;
+TED defaults to 30 minutes. Configure `CONTRACTS_FINDER_SCHEDULE_MINUTES`,
+`FIND_A_TENDER_SCHEDULE_MINUTES`, and `TED_SCHEDULE_MINUTES`; 0 disables an entry,
+and enabled values must be 15–10080 minutes. Beat derives these entries from the
+source connector registry and enqueues lightweight trigger
 tasks; database exclusivity applies even if scheduling attempts overlap. Production
 `CELERY_TASK_ALWAYS_EAGER=false`; true deliberately executes locally for testing,
 including CLI triggers. Eager tests do not establish real broker/worker behavior.
@@ -1016,7 +1020,7 @@ separate from pipeline execution.
 
 The `/api/v1` API adapts the existing synchronous services. Matching, analysis,
 Q&A, change detection and pipeline rules remain in their existing service modules.
-No migration is added: the Alembic head remains **0007**. There is no authentication,
+Task 11 added no migration; its head at completion was **0007**. There is no authentication,
 tenant isolation, proposal generation or automatic bidding. Use a trusted local
 workspace; CORS is a browser origin policy, not access control.
 
@@ -1149,13 +1153,15 @@ Companies, Alerts and Settings. The former `/tenders` list URL redirects to
 ### Live Discover
 
 A non-empty Discover query calls `GET /api/v1/discover?q=...`. The API concurrently
-fetches one bounded public listing from each selected source: **Contracts Finder**
-and **Find a Tender** are the only live sources supported in this phase. Neither
-adapter relies on unverified server-side text search: TenderScout normalizes and
-upserts the bounded batches with the existing ingestion/revision logic, then
+queries the selected registered sources: **Contracts Finder**, **Find a Tender**,
+and **TED** are the only live sources supported. TED uses the official anonymous
+v3 Search API and its server-side expert full-text query. The two UK connectors
+inspect bounded public listings and filter locally because their existing adapters
+do not expose a verified full-text API. TenderScout normalizes and upserts results
+with the existing ingestion/revision logic, then
 filters stored tenders by title, organization, category and description. Title
 matches rank first. This means a query may miss relevant notices outside the
-latest source batch unless they were recorded previously.
+latest UK source batch unless they were recorded previously.
 
 The response reports the request time, each source's refresh status and time,
 and whether each result was fetched in that request. If a source fails, stored
@@ -1165,6 +1171,17 @@ sources. Search never runs document processing or AI analysis synchronously.
 To check public source access manually in a configured local environment, open
 `/discover`, submit a query of at least three characters, and inspect the source
 status and result freshness; this is not part of automated CI.
+
+### Continuous monitoring
+
+Celery Beat refreshes all three registered sources without a browser session.
+Each scheduled run uses the same bounded connector and ingestion path, preserving
+source identity, revisions, change detection, pipeline status, and sanitized
+failure categories. PostgreSQL records the last successful source refresh and the
+pipeline run history records completed, partial, or failed attempts. One source
+failure does not stop the other scheduled tasks. No email alerts or customer
+notification delivery exist yet; a later phase can use newly discovered and changed
+tenders as alert inputs.
 `/tenders/[id]` has Overview, Analysis, Documents, Changes, Ask Tender and Matches
 tabs. Large tab contents are fetched only when selected. Analysis facts expose
 expandable quotes; documents expose version state without paths; change links open
@@ -1177,7 +1194,7 @@ explicit empty, loading, insufficient-evidence and error states; no demo data is
 substituted when the API is empty or unavailable.
 
 The pipeline routes remain available internally and are absent from customer
-navigation. `/pipeline` offers the two supported sources and recent runs; `/pipeline/[id]`
+navigation. `/pipeline` remains an internal operational route for registered sources; `/pipeline/[id]`
 shows attempts, safe failure reasons and metrics. Active runs poll every five
 seconds and stop when terminal or unmounted. Shared API URLs/error handling are
 centralized in `frontend/lib/api.ts`. Read pages use Server Components; forms,
@@ -1301,7 +1318,7 @@ python -m unittest discover -s backend/integration -v
 ```
 
 Without the opt-in, the five tests explicitly skip. With it, connection/schema
-failures fail the suite. The suite requires head `0007`, never drops tables or runs
+failures fail the suite. The suite requires the current head `0008`, never drops tables or runs
 downgrades, rolls back fixtures, and removes only its identified committed lock-test
 row. Use an otherwise empty test database and do not run this against real tender
 history. Existing SQLite unit tests remain independently runnable without services.

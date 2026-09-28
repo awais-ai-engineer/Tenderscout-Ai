@@ -8,15 +8,11 @@ import httpx
 from sqlalchemy.exc import SQLAlchemyError
 
 from app.schemas.product import SourceSlug
-from app.scrapers import contracts_finder, find_tender
 from app.scrapers.records import ParsedListing
 from app.services import ingestion, queries
+from app.sources import SOURCE_CONNECTORS, connector
 
 logger = logging.getLogger(__name__)
-SOURCES = {
-    contracts_finder.SOURCE.slug: contracts_finder.SOURCE,
-    find_tender.SOURCE.slug: find_tender.SOURCE,
-}
 MAX_RESULTS_PER_SOURCE = 20
 LIVE_REQUEST_TIMEOUT_SECONDS = 8.0
 
@@ -38,35 +34,16 @@ def normalize_query(value: str | None) -> str:
     return normalized
 
 
-def fetch_source(slug: SourceSlug) -> tuple[ParsedListing, datetime]:
-    """Read one public, bounded batch; neither source has verified text search here."""
-    with httpx.Client() as client:
-        if slug == contracts_finder.SOURCE.slug:
-            listing = contracts_finder.parse_releases(
-                contracts_finder.fetch_releases(
-                    client, timeout=LIVE_REQUEST_TIMEOUT_SECONDS
-                )
-            )
-        else:
-            listing = find_tender.parse_listing(
-                find_tender.fetch_listing(client, timeout=LIVE_REQUEST_TIMEOUT_SECONDS)
-            )
-    seen_ids: set[str] = set()
-    seen_urls: set[str] = set()
-    records = []
-    for record in listing.records:
-        url = str(record.source_url)
-        if url in seen_urls or (record.external_id and record.external_id in seen_ids):
-            continue
-        seen_urls.add(url)
-        if record.external_id:
-            seen_ids.add(record.external_id)
-        records.append(record)
-        if len(records) == MAX_RESULTS_PER_SOURCE:
-            break
-    return ParsedListing(
-        records=records, failed=listing.failed, skipped=listing.skipped
-    ), datetime.now(UTC)
+def search_source(slug: SourceSlug, query: str) -> tuple[ParsedListing, datetime]:
+    source = connector(slug)
+    with httpx.Client(trust_env=False, follow_redirects=False) as client:
+        listing = source.search(
+            client,
+            query,
+            limit=MAX_RESULTS_PER_SOURCE,
+            timeout=LIVE_REQUEST_TIMEOUT_SECONDS,
+        )
+    return listing, datetime.now(UTC)
 
 
 def search(
@@ -103,11 +80,13 @@ def search(
             "result_count": len(recorded["items"]),
         }
 
-    selected = [source] if source else list(SOURCES)
+    selected = [source] if source else list(SOURCE_CONNECTORS)
     fetched: dict[str, tuple[ParsedListing, datetime]] = {}
     statuses = {}
     with ThreadPoolExecutor(max_workers=len(selected)) as executor:
-        futures = {executor.submit(fetch_source, slug): slug for slug in selected}
+        futures = {
+            executor.submit(search_source, slug, term): slug for slug in selected
+        }
         for future in as_completed(futures):
             slug = futures[future]
             try:
@@ -132,7 +111,7 @@ def search(
         affected: set[int] = set()
         try:
             ingestion.ingest_tenders(
-                engine, SOURCES[slug], listing, affected_ids=affected
+                engine, connector(slug).source, listing, affected_ids=affected
             )
         except (SQLAlchemyError, ingestion.InactiveSourceError) as exc:
             logger.warning(

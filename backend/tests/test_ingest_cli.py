@@ -21,7 +21,7 @@ class IngestCliTests(unittest.TestCase):
         self.stack.enter_context(patch("app.ingest.logging.basicConfig"))
         self.fetch = self.stack.enter_context(
             patch(
-                "app.ingest.find_tender.fetch_listing",
+                "app.sources.connectors.find_tender.fetch_listing",
                 return_value=FIXTURE.read_text(encoding="utf-8"),
             )
         )
@@ -90,7 +90,8 @@ class IngestCliTests(unittest.TestCase):
                 ["app.ingest", "--source", "contracts-finder", "--fetch-only"],
             ),
             patch(
-                "app.ingest.contracts_finder.fetch_releases", return_value=payload
+                "app.sources.connectors.contracts_finder.fetch_releases",
+                return_value=payload,
             ) as fetch,
         ):
             self.assertEqual(main(), 0)
@@ -106,7 +107,7 @@ class IngestCliTests(unittest.TestCase):
         with (
             patch("sys.argv", ["app.ingest", "--source", "contracts-finder"]),
             patch(
-                "app.ingest.contracts_finder.fetch_releases",
+                "app.sources.connectors.contracts_finder.fetch_releases",
                 return_value={"releases": []},
             ),
         ):

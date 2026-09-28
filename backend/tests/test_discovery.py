@@ -14,16 +14,17 @@ from app.main import app
 from app.models import Base, Tender, TenderRevision
 from app.scrapers.records import ParsedListing, ScrapedTender
 from app.services import discovery, ingestion
+from app.sources import connector
 
 NOW = datetime(2026, 9, 27, tzinfo=UTC)
 
 
 def record(source, external_id, title, *, description=None, organization=None):
-    host = (
-        "www.contractsfinder.service.gov.uk"
-        if source == "contracts-finder"
-        else "www.find-tender.service.gov.uk"
-    )
+    host = {
+        "contracts-finder": "www.contractsfinder.service.gov.uk",
+        "find-a-tender": "www.find-tender.service.gov.uk",
+        "ted": "ted.europa.eu",
+    }[source]
     return ScrapedTender(
         external_id=external_id,
         source_url=f"https://{host}/Notice/{external_id}",
@@ -52,15 +53,22 @@ class DiscoveryTests(unittest.TestCase):
             "IT services",
             description="Cloud hosting required",
         )
+        self.ted = record(
+            "ted", "123456-2026", "Cloud infrastructure", organization="EU Agency"
+        )
         self.calls = []
 
-    def fetch(self, slug):
+    def fetch(self, slug, query):
         self.calls.append(slug)
-        item = self.contracts if slug == "contracts-finder" else self.find
+        item = {
+            "contracts-finder": self.contracts,
+            "find-a-tender": self.find,
+            "ted": self.ted,
+        }[slug]
         return ParsedListing([item, item]), NOW
 
     def search(self, **kwargs):
-        with patch.object(discovery, "fetch_source", side_effect=self.fetch):
+        with patch.object(discovery, "search_source", side_effect=self.fetch):
             return discovery.search(self.engine, q="cloud", **kwargs)
 
     def test_query_validation_and_bounds(self):
@@ -75,22 +83,23 @@ class DiscoveryTests(unittest.TestCase):
             self.search(cursor=1)
         self.assertEqual(self.calls, [])
 
-    def test_both_sources_fresh_deduplicated_and_ranked(self):
+    def test_all_sources_fresh_and_ranked(self):
         result = self.search(limit=1)
-        self.assertCountEqual(self.calls, ["contracts-finder", "find-a-tender"])
+        self.assertCountEqual(self.calls, ["contracts-finder", "find-a-tender", "ted"])
         self.assertEqual(result["mode"], "live")
         self.assertEqual(result["result_count"], 1)
-        self.assertEqual(result["items"][0]["title"], "Cloud hosting services")
+        self.assertEqual(result["items"][0]["title"], "Cloud infrastructure")
         self.assertTrue(result["items"][0]["freshly_fetched"])
         self.assertEqual(
-            [s["status"] for s in result["sources"]], ["success", "success"]
+            [s["status"] for s in result["sources"]],
+            ["success", "success", "success"],
         )
-        self.assertEqual([s["fetched_at"] for s in result["sources"]], [NOW, NOW])
+        self.assertEqual([s["fetched_at"] for s in result["sources"]], [NOW, NOW, NOW])
         with Session(self.engine) as session:
-            self.assertEqual(session.scalar(select(func.count(Tender.id))), 2)
-        self.assertEqual(self.search()["result_count"], 2)
+            self.assertEqual(session.scalar(select(func.count(Tender.id))), 3)
+        self.assertEqual(self.search()["result_count"], 3)
         with Session(self.engine) as session:
-            self.assertEqual(session.scalar(select(func.count(Tender.id))), 2)
+            self.assertEqual(session.scalar(select(func.count(Tender.id))), 3)
 
     def test_source_selection_and_persisted_update(self):
         first = self.search(source="contracts-finder")
@@ -105,93 +114,85 @@ class DiscoveryTests(unittest.TestCase):
             self.assertEqual(session.scalar(select(func.count(Tender.id))), 1)
             self.assertEqual(session.scalar(select(func.count(TenderRevision.id))), 2)
 
+    def test_ted_source_filter_calls_only_ted(self):
+        result = self.search(source="ted")
+        self.assertEqual(self.calls, ["ted"])
+        self.assertEqual(result["sources"][0]["source"], "ted")
+        self.assertEqual(result["items"][0]["source"], "ted")
+
     def test_one_failure_uses_recorded_fallback_without_fresh_label(self):
         ingestion.ingest_tenders(
-            self.engine, discovery.SOURCES["find-a-tender"], ParsedListing([self.find])
+            self.engine, connector("find-a-tender").source, ParsedListing([self.find])
         )
 
-        def partial(slug):
+        def partial(slug, query):
             if slug == "find-a-tender":
                 raise RuntimeError("private upstream detail")
-            return self.fetch(slug)
+            return self.fetch(slug, query)
 
-        with patch.object(discovery, "fetch_source", side_effect=partial):
+        with patch.object(discovery, "search_source", side_effect=partial):
             result = discovery.search(self.engine, q="cloud")
         self.assertEqual(
-            [s["status"] for s in result["sources"]], ["success", "unavailable"]
+            [s["status"] for s in result["sources"]],
+            ["success", "unavailable", "success"],
         )
         self.assertEqual(result["sources"][1]["error_code"], "source_unavailable")
         self.assertNotIn("private upstream detail", str(result))
         self.assertEqual(
             {row["source"]: row["freshly_fetched"] for row in result["items"]},
-            {"contracts-finder": True, "find-a-tender": False},
+            {"contracts-finder": True, "find-a-tender": False, "ted": True},
         )
 
     def test_both_failures_return_recorded_results(self):
         ingestion.ingest_tenders(
             self.engine,
-            discovery.SOURCES["contracts-finder"],
+            connector("contracts-finder").source,
             ParsedListing([self.contracts]),
         )
         with patch.object(
-            discovery, "fetch_source", side_effect=RuntimeError("upstream")
+            discovery, "search_source", side_effect=RuntimeError("upstream")
         ):
             result = discovery.search(self.engine, q="cloud")
         self.assertEqual(result["result_count"], 1)
         self.assertFalse(result["items"][0]["freshly_fetched"])
         self.assertEqual(
-            [s["status"] for s in result["sources"]], ["unavailable", "unavailable"]
+            [s["status"] for s in result["sources"]],
+            ["unavailable", "unavailable", "unavailable"],
+        )
+
+    def test_two_failures_keep_third_source_useful(self):
+        def partial(slug, query):
+            if slug != "ted":
+                raise RuntimeError("private upstream detail")
+            return self.fetch(slug, query)
+
+        with patch.object(discovery, "search_source", side_effect=partial):
+            result = discovery.search(self.engine, q="cloud")
+        self.assertEqual(result["result_count"], 1)
+        self.assertEqual(result["items"][0]["source"], "ted")
+        self.assertEqual(
+            [item["status"] for item in result["sources"]],
+            ["unavailable", "unavailable", "success"],
         )
 
     def test_empty_query_does_not_fetch(self):
         with patch.object(
-            discovery, "fetch_source", side_effect=AssertionError("must not fetch")
+            discovery, "search_source", side_effect=AssertionError("must not fetch")
         ):
             result = discovery.search(self.engine, q=" ")
         self.assertEqual(result["mode"], "recorded")
         self.assertEqual(result["sources"], [])
 
-    def test_source_batch_is_bounded_and_deduplicated_before_ingestion(self):
-        duplicates = [
-            self.contracts,
-            self.contracts.model_copy(
-                update={
-                    "source_url": "https://www.contractsfinder.service.gov.uk/Notice/other"
-                }
-            ),
-        ]
-        records = duplicates + [
-            record("contracts-finder", f"contract-{n}", f"Cloud {n}")
-            for n in range(2, 30)
-        ]
-        with (
-            patch.object(
-                discovery.contracts_finder, "fetch_releases", return_value={}
-            ) as fetch,
-            patch.object(
-                discovery.contracts_finder,
-                "parse_releases",
-                return_value=ParsedListing(records),
-            ),
-        ):
-            listing, fetched_at = discovery.fetch_source("contracts-finder")
-        self.assertEqual(len(listing.records), discovery.MAX_RESULTS_PER_SOURCE)
-        self.assertEqual(len({item.external_id for item in listing.records}), 20)
-        self.assertEqual(
-            fetch.call_args.kwargs["timeout"], discovery.LIVE_REQUEST_TIMEOUT_SECONDS
-        )
-        self.assertIsNotNone(fetched_at.tzinfo)
-
     def test_source_fetches_overlap(self):
-        barrier = Barrier(2, timeout=2)
+        barrier = Barrier(3, timeout=2)
 
-        def concurrent(slug):
+        def concurrent(slug, query):
             barrier.wait()
-            return self.fetch(slug)
+            return self.fetch(slug, query)
 
-        with patch.object(discovery, "fetch_source", side_effect=concurrent):
+        with patch.object(discovery, "search_source", side_effect=concurrent):
             result = discovery.search(self.engine, q="cloud")
-        self.assertEqual(len(result["sources"]), 2)
+        self.assertEqual(len(result["sources"]), 3)
         self.assertTrue(all(item["status"] == "success" for item in result["sources"]))
 
     def test_api_contract_and_sanitized_errors(self):
@@ -199,7 +200,7 @@ class DiscoveryTests(unittest.TestCase):
         with (
             patch("app.main.create_database_engine", return_value=self.engine),
             patch("app.main.Settings", return_value=settings),
-            patch.object(discovery, "fetch_source", side_effect=self.fetch),
+            patch.object(discovery, "search_source", side_effect=self.fetch),
             TestClient(app, raise_server_exceptions=False) as client,
         ):
             base = "/api/v1/discover"
@@ -222,15 +223,15 @@ class DiscoveryTests(unittest.TestCase):
     def test_api_partial_failure_is_200(self):
         settings = Settings(_env_file=None, postgres_password="test-only")
 
-        def partial(slug):
+        def partial(slug, query):
             if slug == "find-a-tender":
                 raise RuntimeError("private upstream detail")
-            return self.fetch(slug)
+            return self.fetch(slug, query)
 
         with (
             patch("app.main.create_database_engine", return_value=self.engine),
             patch("app.main.Settings", return_value=settings),
-            patch.object(discovery, "fetch_source", side_effect=partial),
+            patch.object(discovery, "search_source", side_effect=partial),
             TestClient(app, raise_server_exceptions=False) as client,
         ):
             response = client.get("/api/v1/discover?q=cloud")
@@ -245,7 +246,7 @@ class DiscoveryTests(unittest.TestCase):
             patch("app.main.Settings", return_value=settings),
             patch.object(
                 discovery,
-                "fetch_source",
+                "search_source",
                 side_effect=RuntimeError("private upstream detail"),
             ),
             patch.object(

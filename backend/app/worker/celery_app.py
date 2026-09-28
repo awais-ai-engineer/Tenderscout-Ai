@@ -6,6 +6,7 @@ from celery import Celery
 from kombu import Queue
 
 from app.core.config import Settings
+from app.sources import SOURCE_CONNECTORS
 
 TASK_PREFIX = "app.worker.tasks."
 ROUTES = {
@@ -34,10 +35,8 @@ def celery_config(settings: Settings) -> dict:
         else f"redis://{auth}{host}:{settings.redis_port}/{settings.redis_db}"
     )
     schedules = {}
-    for source, minutes in (
-        ("find-a-tender", settings.find_a_tender_schedule_minutes),
-        ("contracts-finder", settings.contracts_finder_schedule_minutes),
-    ):
+    for source in SOURCE_CONNECTORS:
+        minutes = getattr(settings, source.replace("-", "_") + "_schedule_minutes")
         if minutes:
             schedules[source] = {
                 "task": TASK_PREFIX + "trigger_source_task",

@@ -7,9 +7,9 @@ from sqlalchemy.exc import SQLAlchemyError
 
 from app.core.config import Settings
 from app.db.session import create_database_engine
-from app.scrapers import contracts_finder, find_tender
 from app.scrapers.errors import SourceFetchError, SourceParseError
 from app.services.ingestion import InactiveSourceError, ingest_tenders
+from app.sources import SOURCE_CONNECTORS, connector
 
 logger = logging.getLogger(__name__)
 
@@ -20,8 +20,8 @@ def main() -> int:
     )
     parser.add_argument(
         "--source",
-        choices=(find_tender.SOURCE.slug, contracts_finder.SOURCE.slug),
-        default=find_tender.SOURCE.slug,
+        choices=tuple(SOURCE_CONNECTORS),
+        default="find-a-tender",
     )
     parser.add_argument(
         "--fetch-only",
@@ -29,21 +29,12 @@ def main() -> int:
         help="Fetch and validate without database writes",
     )
     args = parser.parse_args()
-    source = (
-        find_tender.SOURCE
-        if args.source == find_tender.SOURCE.slug
-        else contracts_finder.SOURCE
-    )
+    source = connector(args.source)
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s %(message)s")
     try:
         settings = None if args.fetch_only else Settings()
         with httpx.Client(follow_redirects=False) as client:
-            if source.slug == find_tender.SOURCE.slug:
-                listing = find_tender.parse_listing(find_tender.fetch_listing(client))
-            else:
-                listing = contracts_finder.parse_releases(
-                    contracts_finder.fetch_releases(client)
-                )
+            listing = source.refresh(client, limit=100, timeout=30.0)
         if args.fetch_only:
             print(
                 f"source: {source.slug}\nmode: fetch-only (no database writes)\n"
@@ -54,7 +45,7 @@ def main() -> int:
         assert settings is not None
         engine = create_database_engine(settings)
         try:
-            result = ingest_tenders(engine, source, listing)
+            result = ingest_tenders(engine, source.source, listing)
         finally:
             engine.dispose()
     except (SourceFetchError, SourceParseError, InactiveSourceError) as error:

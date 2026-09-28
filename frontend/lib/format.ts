@@ -20,7 +20,9 @@ export function source(value: string) {
     ? "Contracts Finder"
     : value === "find-a-tender"
       ? "Find a Tender"
-      : value;
+      : value === "ted"
+        ? "TED"
+        : value;
 }
 export function positive(
   value: string | string[] | undefined,

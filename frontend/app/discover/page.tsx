@@ -36,9 +36,9 @@ export default async function DiscoverPage({
   return (
     <>
       <Heading eyebrow="Opportunity discovery" title="Discover opportunities">
-        Search Contracts Finder and Find a Tender, compare deadlines, and review
-        source evidence. A search refreshes a bounded public listing from each
-        selected source; browsing without a query uses recorded opportunities.
+        Search Contracts Finder, Find a Tender and TED, compare deadlines, and
+        review source evidence. A search checks each selected public source;
+        browsing without a query uses recorded opportunities.
       </Heading>
       <form className="filters discover-filters" action="/discover">
         <div className="field">
@@ -58,6 +58,7 @@ export default async function DiscoverPage({
             <option value="">All sources</option>
             <option value="contracts-finder">Contracts Finder</option>
             <option value="find-a-tender">Find a Tender</option>
+            <option value="ted">TED</option>
           </select>
         </div>
         <div className="field">

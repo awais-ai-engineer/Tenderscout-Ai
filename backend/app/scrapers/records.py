@@ -22,6 +22,7 @@ class ParsedListing:
     records: list[ScrapedTender] = field(default_factory=list)
     failed: int = 0
     skipped: int = 0
+    limited: int = 0
 
     @property
     def discovered(self) -> int:

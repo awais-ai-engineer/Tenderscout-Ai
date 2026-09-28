@@ -65,11 +65,22 @@ class MigrationTests(unittest.TestCase):
             expected = str(CreateTable(table).compile(dialect=postgresql.dialect()))
             actual = re.search(rf"CREATE TABLE {table.name} \(\n(.*?)\n\);", sql, re.S)
             self.assertIsNotNone(actual)
+
+            def relevant(line):
+                return not (
+                    table.name == "pipeline_runs" and "ck_pipeline_source" in line
+                )
+
             self.assertEqual(
-                sorted(line.strip().rstrip(",") for line in actual[1].splitlines()),
+                sorted(
+                    line.strip().rstrip(",")
+                    for line in actual[1].splitlines()
+                    if relevant(line)
+                ),
                 sorted(
                     line.strip().rstrip(",")
                     for line in expected.strip().splitlines()[1:-1]
+                    if relevant(line)
                 ),
             )
             for index in table.indexes:
@@ -83,6 +94,23 @@ class MigrationTests(unittest.TestCase):
         self.assertIn("'0005'", sql)
         self.assertIn("'0006'", sql)
         self.assertIn("'0007'", sql)
+        self.assertIn("'0008'", sql)
+        self.assertIn(
+            "source_slug IN ('find-a-tender', 'contracts-finder', 'ted')", sql
+        )
+
+    def test_0008_only_extends_pipeline_source_constraint(self):
+        output = StringIO()
+        with patch.dict(
+            os.environ, {"POSTGRES_PASSWORD": "offline-test-only"}, clear=True
+        ):
+            command.upgrade(
+                Config(str(CONFIG_FILE), output_buffer=output), "0007:0008", sql=True
+            )
+        sql = output.getvalue()
+        self.assertIn("DROP CONSTRAINT ck_pipeline_source", sql)
+        self.assertIn("'ted'", sql)
+        self.assertNotIn("CREATE TABLE", sql)
 
     def test_postgresql_downgrade_sql_drops_child_table_first(self) -> None:
         output = StringIO()

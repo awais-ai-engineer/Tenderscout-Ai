@@ -52,8 +52,9 @@ class Settings(BaseSettings):
     celery_broker_url: SecretStr | None = None
     celery_result_backend: SecretStr | None = None
     celery_task_always_eager: bool = False
-    find_a_tender_schedule_minutes: int = Field(default=60, ge=0, le=10080)
-    contracts_finder_schedule_minutes: int = Field(default=60, ge=0, le=10080)
+    find_a_tender_schedule_minutes: int = Field(default=15, ge=0, le=10080)
+    contracts_finder_schedule_minutes: int = Field(default=15, ge=0, le=10080)
+    ted_schedule_minutes: int = Field(default=30, ge=0, le=10080)
     auto_match_enabled: bool = False
     auto_match_max_companies: int = Field(default=100, ge=1, le=1000)
     pipeline_stale_after_minutes: int = Field(default=60, ge=5, le=10080)
@@ -61,12 +62,14 @@ class Settings(BaseSettings):
     pipeline_max_documents: int = Field(default=100, ge=1, le=500)
 
     @field_validator(
-        "find_a_tender_schedule_minutes", "contracts_finder_schedule_minutes"
+        "find_a_tender_schedule_minutes",
+        "contracts_finder_schedule_minutes",
+        "ted_schedule_minutes",
     )
     @classmethod
     def validate_schedule(cls, value: int) -> int:
-        if 0 < value < 60:
-            raise ValueError("Schedules must be disabled (0) or at least 60 minutes")
+        if 0 < value < 15:
+            raise ValueError("Schedules must be disabled (0) or at least 15 minutes")
         return value
 
     @field_validator("celery_broker_url", "celery_result_backend")
