@@ -70,6 +70,9 @@ METRICS = frozenset(
         "change_count",
         "limited",
         "scope_count",
+        "alerts",
+        "update_alerts",
+        "delivery_deferred",
     }
 )
 

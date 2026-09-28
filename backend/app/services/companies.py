@@ -6,6 +6,7 @@ from app.models import (
     CompanyCertification,
     CompanyExperience,
     CompanyProfile,
+    NotificationPreference,
 )
 from app.schemas.company import (
     CapabilityInput,
@@ -32,6 +33,7 @@ def create_company(engine: Engine, profile: CompanyInput) -> int:
     with Session(engine) as session, session.begin():
         session.add(company)
         session.flush()
+        session.add(NotificationPreference(company_id=company.id))
         return company.id
 
 

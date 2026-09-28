@@ -297,3 +297,75 @@ class Dashboard(Response):
     upcoming_deadlines: list[TenderSummary] = Field(max_length=5)
     recent_changes: list[ChangeSummary] = Field(max_length=5)
     recent_runs: list[RunSummary] = Field(max_length=5)
+    saved_tenders_count: int = 0
+    unread_alerts_count: int = 0
+    matching_opportunities_count: int = 0
+
+
+class SavedTenderItem(Response):
+    id: ID
+    company_id: ID
+    tender: TenderSummary
+    saved_at: datetime
+    updated_since_saved: bool
+
+
+class SavedTenderResult(Response):
+    saved: bool
+    id: ID | None = None
+
+
+class NotificationPreferenceInput(Response):
+    notification_email: str | None = Field(default=None, max_length=320)
+    email_enabled: bool = False
+    minimum_match_score: int = Field(default=70, ge=0, le=100)
+    new_match_alerts: bool = True
+    tender_change_alerts: bool = True
+    deadline_reminders: bool = True
+    delivery_mode: Literal["instant", "daily_digest"] = "instant"
+
+    @field_validator("notification_email")
+    @classmethod
+    def valid_email(cls, value: str | None) -> str | None:
+        from email.utils import parseaddr
+
+        if value is None:
+            return None
+        value = value.strip()
+        parsed = parseaddr(value)[1]
+        if (
+            parsed != value
+            or value.count("@") != 1
+            or "." not in value.rsplit("@", 1)[1]
+        ):
+            raise ValueError("Enter a valid email address")
+        return value
+
+
+class NotificationPreferenceView(NotificationPreferenceInput):
+    company_id: ID
+    created_at: datetime | None = None
+    updated_at: datetime | None = None
+
+
+class AlertItem(Response):
+    id: ID
+    company_id: ID
+    company_name: str
+    tender_id: ID
+    tender_title: str
+    type: Literal["new_match", "tender_updated", "deadline_reminder"]
+    title: str
+    message: str
+    created_at: datetime
+    read_at: datetime | None
+
+
+class MatchOpportunity(MatchSummary):
+    tender_id: ID
+    tender_title: str
+    organization: str | None
+    deadline: datetime | None
+    source: str
+    matched_reasons: list[str]
+    unknown_reasons: list[str]

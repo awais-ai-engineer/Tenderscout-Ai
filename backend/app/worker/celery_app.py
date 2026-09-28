@@ -3,6 +3,7 @@ from datetime import timedelta
 from urllib.parse import quote
 
 from celery import Celery
+from celery.schedules import crontab
 from kombu import Queue
 
 from app.core.config import Settings
@@ -17,6 +18,10 @@ ROUTES = {
     "match_analysis_task": "default",
     "compare_analysis_task": "default",
     "trigger_source_task": "default",
+    "deliver_alert_task": "default",
+    "send_daily_digests_task": "default",
+    "generate_deadline_reminders_task": "default",
+    "retry_instant_alerts_task": "default",
 }
 
 
@@ -43,6 +48,18 @@ def celery_config(settings: Settings) -> dict:
                 "schedule": timedelta(minutes=minutes),
                 "args": [source],
             }
+    schedules["deadline-reminders"] = {
+        "task": TASK_PREFIX + "generate_deadline_reminders_task",
+        "schedule": crontab(hour=6, minute=0),
+    }
+    schedules["daily-digests"] = {
+        "task": TASK_PREFIX + "send_daily_digests_task",
+        "schedule": crontab(hour=settings.daily_digest_hour_utc, minute=0),
+    }
+    schedules["instant-alert-recovery"] = {
+        "task": TASK_PREFIX + "retry_instant_alerts_task",
+        "schedule": timedelta(minutes=15),
+    }
     return dict(
         broker_url=broker,
         result_backend=settings.celery_result_backend.get_secret_value()

@@ -13,6 +13,7 @@ from app.models.company import (
 )
 from app.models.document import DocumentVersion, TenderDocument
 from app.models.match import TenderMatch
+from app.models.notifications import Alert, NotificationPreference, SavedTender
 from app.models.pipeline import PipelineRun, PipelineStageRun
 from app.models.rag import ChunkEmbedding, DocumentChunk, TenderQuestion
 from app.models.source import Source
@@ -32,6 +33,9 @@ __all__ = [
     "CompanyCertification",
     "CompanyExperience",
     "TenderMatch",
+    "SavedTender",
+    "NotificationPreference",
+    "Alert",
     "DocumentChunk",
     "ChunkEmbedding",
     "TenderQuestion",

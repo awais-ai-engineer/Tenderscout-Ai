@@ -108,6 +108,16 @@ class Settings(BaseSettings):
     rag_top_k: int = Field(default=5, ge=1, le=20)
     rag_max_context_chars: int = Field(default=12000, ge=256, le=64000)
 
+    smtp_host: str | None = None
+    smtp_port: int = Field(default=587, ge=1, le=65535)
+    smtp_username: str | None = None
+    smtp_password: SecretStr | None = None
+    smtp_from_email: str | None = None
+    smtp_starttls: bool = True
+    product_base_url: str = "http://localhost:3000"
+    daily_digest_hour_utc: int = Field(default=8, ge=0, le=23)
+    deadline_reminder_days: list[int] = [7, 2]
+
     @model_validator(mode="after")
     def validate_chunk_overlap(self):
         if self.rag_chunk_overlap_chars >= self.rag_chunk_size_chars:
@@ -119,9 +129,18 @@ class Settings(BaseSettings):
     def resolve_storage_dir(cls, value: Path) -> Path:
         return (ENV_FILE.parent / value).resolve()
 
-    @field_validator("postgres_password", "redis_password", "openai_api_key")
+    @field_validator(
+        "postgres_password", "redis_password", "openai_api_key", "smtp_password"
+    )
     @classmethod
     def validate_secret(cls, value: SecretStr | None) -> SecretStr | None:
         if value is not None and not value.get_secret_value().strip():
             raise ValueError("Secret must not be empty")
         return value
+
+    @field_validator("deadline_reminder_days")
+    @classmethod
+    def valid_reminder_days(cls, value: list[int]) -> list[int]:
+        if not value or len(value) > 10 or any(day < 1 or day > 365 for day in value):
+            raise ValueError("Reminder days must contain 1 to 10 values from 1 to 365")
+        return sorted(set(value), reverse=True)

@@ -54,9 +54,19 @@ export default async function OverviewPage() {
           <small>Across connected procurement sources</small>
         </div>
         <div>
-          <p>Company profiles</p>
-          <strong>{data.company_count.toLocaleString()}</strong>
-          <small>Company-provided facts</small>
+          <p>Company matches</p>
+          <strong>{data.matching_opportunities_count.toLocaleString()}</strong>
+          <small>Explainable stored evaluations</small>
+        </div>
+        <div>
+          <p>Saved tenders</p>
+          <strong>{data.saved_tenders_count.toLocaleString()}</strong>
+          <small>Tracked across company profiles</small>
+        </div>
+        <div>
+          <p>Unread alerts</p>
+          <strong>{data.unread_alerts_count.toLocaleString()}</strong>
+          <small>Match, update, and deadline events</small>
         </div>
       </div>
       <div className="two-columns">

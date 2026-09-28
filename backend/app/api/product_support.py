@@ -147,7 +147,7 @@ class ProductBoundary:
         cors = ProductCORS(
             self.bounded,
             allow_origins=origins,
-            allow_methods=["GET", "POST"],
+            allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE"],
             allow_headers=["Content-Type"],
             allow_credentials=False,
         )

@@ -28,8 +28,21 @@ export default async function DiscoverPage({
     cursor: positive(params.cursor),
   };
   let data, error;
+  let companies: Awaited<ReturnType<typeof api.companies>> = {
+    items: [],
+    next_cursor: null,
+  };
+  let company;
+  let saved: Awaited<ReturnType<typeof api.saved>> | null = null;
   try {
-    data = await api.discover(filters);
+    [data, companies] = await Promise.all([
+      api.discover(filters),
+      api.companies(),
+    ]);
+    company =
+      companies.items.find((item) => item.id === Number(text("company_id"))) ||
+      companies.items[0];
+    saved = company ? await api.saved(company.id).catch(() => null) : null;
   } catch (err) {
     error = err;
   }
@@ -51,6 +64,17 @@ export default async function DiscoverPage({
             minLength={3}
             maxLength={255}
           />
+        </div>
+        <div className="field">
+          <label htmlFor="company_id">Save for company</label>
+          <select id="company_id" name="company_id" defaultValue={company?.id}>
+            <option value="">No company selected</option>
+            {companies.items.map((item) => (
+              <option key={item.id} value={item.id}>
+                {item.name}
+              </option>
+            ))}
+          </select>
         </div>
         <div className="field">
           <label htmlFor="source">Source</label>
@@ -82,7 +106,8 @@ export default async function DiscoverPage({
           <>
             <div className="discovery-summary" role="status">
               <strong>
-                {data.result_count} {data.result_count === 1 ? "result" : "results"} shown
+                {data.result_count}{" "}
+                {data.result_count === 1 ? "result" : "results"} shown
               </strong>
               <span>
                 {data.mode === "live"
@@ -95,7 +120,9 @@ export default async function DiscoverPage({
                 {data.sources.map((item) => (
                   <li
                     key={item.source}
-                    className={item.status === "unavailable" ? "source-warning" : ""}
+                    className={
+                      item.status === "unavailable" ? "source-warning" : ""
+                    }
                   >
                     <strong>{sourceLabel(item.source)}</strong>{" "}
                     {item.status === "success"
@@ -106,14 +133,22 @@ export default async function DiscoverPage({
               </ul>
             )}
             <Panel
-              title={data.mode === "live" ? "Search results" : "Recorded opportunities"}
+              title={
+                data.mode === "live"
+                  ? "Search results"
+                  : "Recorded opportunities"
+              }
             >
-              <TenderTable tenders={data.items} />
+              <TenderTable
+                tenders={data.items}
+                companyId={company?.id}
+                savedIds={saved?.items.map((item) => item.tender.id)}
+              />
             </Panel>
             <NextPage
               href={
                 data.next_cursor
-                  ? `/discover${query({ source: text("source"), deadline_before: text("deadline_before"), cursor: data.next_cursor })}`
+                  ? `/discover${query({ q: text("q"), source: text("source"), organization: text("organization"), category: text("category"), deadline_before: text("deadline_before"), company_id: company?.id, cursor: data.next_cursor })}`
                   : null
               }
             />

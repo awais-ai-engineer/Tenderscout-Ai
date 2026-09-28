@@ -58,7 +58,16 @@ class WorkerConfigTests(unittest.TestCase):
 
     def test_registry_driven_schedules_and_minimum_interval(self):
         config = celery_config(self.settings(find_a_tender_schedule_minutes=0))
-        self.assertEqual(set(config["beat_schedule"]), {"contracts-finder", "ted"})
+        self.assertEqual(
+            set(config["beat_schedule"]),
+            {
+                "contracts-finder",
+                "ted",
+                "deadline-reminders",
+                "daily-digests",
+                "instant-alert-recovery",
+            },
+        )
         self.assertEqual(
             config["beat_schedule"]["contracts-finder"]["schedule"].total_seconds(),
             900,
@@ -78,7 +87,13 @@ class WorkerConfigTests(unittest.TestCase):
                     ted_schedule_minutes=0,
                 )
             )["beat_schedule"],
-            {},
+            {
+                "deadline-reminders": config["beat_schedule"]["deadline-reminders"],
+                "daily-digests": config["beat_schedule"]["daily-digests"],
+                "instant-alert-recovery": config["beat_schedule"][
+                    "instant-alert-recovery"
+                ],
+            },
         )
         for values in (
             {"find_a_tender_schedule_minutes": 1},

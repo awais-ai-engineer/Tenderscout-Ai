@@ -1,16 +1,24 @@
 import logging
 
 import httpx
+from sqlalchemy import select
 from sqlalchemy.exc import OperationalError, SQLAlchemyError
+from sqlalchemy.orm import Session
 
 from app.ai.client import ProviderError, ProviderFailure
 from app.core.config import Settings
+from app.models import Alert, NotificationPreference
 from app.scrapers.errors import (
     SourceFetchError,
     SourceParseError,
     TransientSourceFetchError,
 )
 from app.services import pipeline
+from app.services.notifications import (
+    deliver_alert,
+    generate_deadline_alerts,
+    send_digests,
+)
 from app.services.pipeline_steps import execute_stage
 from app.worker.celery_app import celery_app
 from app.worker.runtime import get_engine
@@ -202,6 +210,52 @@ def trigger_source_task(self, source_slug: str):
         raise TransientStageError(pipeline.Reason.DATABASE.value) from None
     except Exception:
         raise StageExecutionError("Pipeline trigger failed") from None
+
+
+@celery_app.task(bind=True, max_retries=3, retry_backoff=30, retry_jitter=True)
+def deliver_alert_task(self, alert_id: int):
+    try:
+        return {"sent": deliver_alert(get_engine(), alert_id, Settings())}
+    except RuntimeError:
+        raise self.retry(exc=StageExecutionError("Email delivery failed")) from None
+
+
+@celery_app.task
+def send_daily_digests_task():
+    return {"digests_sent": send_digests(get_engine(), Settings())}
+
+
+@celery_app.task
+def generate_deadline_reminders_task():
+    settings = Settings()
+    ids = generate_deadline_alerts(get_engine(), settings)
+    for alert_id in ids:
+        deliver_alert_task.apply_async(args=[alert_id], task_id=f"alert-{alert_id}")
+    return {"alerts_created": len(ids)}
+
+
+@celery_app.task
+def retry_instant_alerts_task():
+    with Session(get_engine()) as session:
+        ids = list(
+            session.scalars(
+                select(Alert.id)
+                .join(
+                    NotificationPreference,
+                    NotificationPreference.company_id == Alert.company_id,
+                )
+                .where(
+                    NotificationPreference.email_enabled.is_(True),
+                    NotificationPreference.delivery_mode == "instant",
+                    Alert.delivery_status.in_(("pending", "unconfigured")),
+                )
+                .order_by(Alert.id)
+                .limit(100)
+            )
+        )
+    for alert_id in ids:
+        deliver_alert_task.apply_async(args=[alert_id], task_id=f"alert-{alert_id}")
+    return {"queued": len(ids)}
 
 
 TASKS = {

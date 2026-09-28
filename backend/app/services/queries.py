@@ -7,6 +7,7 @@ from sqlalchemy.orm import Session
 
 from app.ai.schemas import ANALYSIS_SCHEMA_VERSION, TenderAnalysisOutput
 from app.models import (
+    Alert,
     ChunkEmbedding,
     CompanyCapability,
     CompanyCertification,
@@ -17,6 +18,7 @@ from app.models import (
     DocumentVersion,
     PipelineRun,
     PipelineStageRun,
+    SavedTender,
     Source,
     Tender,
     TenderAnalysis,
@@ -659,4 +661,13 @@ def dashboard(engine):
                     run_query().order_by(PipelineRun.id.desc()).limit(5)
                 ).mappings()
             ],
+            "saved_tenders_count": session.scalar(
+                select(func.count()).select_from(SavedTender)
+            ),
+            "unread_alerts_count": session.scalar(
+                select(func.count()).select_from(Alert).where(Alert.read_at.is_(None))
+            ),
+            "matching_opportunities_count": session.scalar(
+                select(func.count()).select_from(TenderMatch)
+            ),
         }

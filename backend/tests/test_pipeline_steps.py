@@ -3,12 +3,20 @@ from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
 from unittest.mock import patch
 
+from change_fixtures import item, output
 from pipeline_fixtures import PipelineDatabaseMixin
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.ai.client import ProviderError, ProviderFailure
-from app.models import CompanyProfile, DocumentVersion, TenderRevision
+from app.models import (
+    Alert,
+    CompanyCapability,
+    CompanyProfile,
+    DocumentVersion,
+    NotificationPreference,
+    TenderRevision,
+)
 from app.scrapers import contracts_finder, find_tender
 from app.scrapers.records import DiscoveredDocument, DiscoveredDocuments, ParsedListing
 from app.services import pipeline as p
@@ -18,6 +26,40 @@ from app.services.ingestion import ingest_tenders
 
 
 class PipelineStepTests(PipelineDatabaseMixin, unittest.TestCase):
+    def test_background_matching_creates_durable_alert_without_browser(self):
+        analysis_id = self.add_analysis(
+            self.version_id,
+            data=output(technical_requirements=[item("Cloud migration platform")]),
+        )
+        row, run = self.child(p.Stage.MATCHING, "analysis", analysis_id)
+        with Session(self.engine) as session, session.begin():
+            company = CompanyProfile(name="Cloud company", capabilities_complete=True)
+            session.add(company)
+            session.flush()
+            session.add(
+                CompanyCapability(
+                    company_id=company.id,
+                    name="Cloud migration platform",
+                    name_key="cloud migration platform",
+                )
+            )
+            session.add(
+                NotificationPreference(
+                    company_id=company.id,
+                    minimum_match_score=0,
+                    email_enabled=False,
+                )
+            )
+        self.settings.auto_match_enabled = True
+        with patch("app.worker.tasks.deliver_alert_task.apply_async"):
+            first = steps.matching_step(self.engine, row, run, self.settings)
+            second = steps.matching_step(self.engine, row, run, self.settings)
+        with Session(self.engine) as session:
+            alerts = list(session.scalars(select(Alert)))
+        self.assertEqual(first.metrics["matched"], 1)
+        self.assertEqual(second.metrics["reused"], 1)
+        self.assertEqual(len(alerts), 1)
+
     def test_invalid_company_does_not_block_other_companies(self):
         analysis_id = self.add_analysis(self.version_id)
         row, run = self.child(p.Stage.MATCHING, "analysis", analysis_id)
@@ -29,7 +71,7 @@ class PipelineStepTests(PipelineDatabaseMixin, unittest.TestCase):
             "match_tender",
             side_effect=[
                 ValueError("invalid private data"),
-                SimpleNamespace(reused=False),
+                SimpleNamespace(reused=False, match_id=0),
             ],
         ) as match:
             outcome = steps.matching_step(self.engine, row, run, self.settings)
@@ -69,6 +111,7 @@ class PipelineStepTests(PipelineDatabaseMixin, unittest.TestCase):
                 "skipped": 0,
                 "limited": 0,
                 "scope_count": 1,
+                "update_alerts": 0,
             },
         )
         ids = result.children[0].scope_ids

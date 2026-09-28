@@ -20,6 +20,7 @@ async function request<T>(
   path: string,
   body?: unknown,
   timeout = 15000,
+  method?: "POST" | "PUT" | "PATCH" | "DELETE",
 ): Promise<T> {
   const base = (
     typeof window === "undefined"
@@ -36,7 +37,7 @@ async function request<T>(
   try {
     response = await fetch(`${base}${path}`, {
       cache: "no-store",
-      method: body === undefined ? "GET" : "POST",
+      method: method || (body === undefined ? "GET" : "POST"),
       headers:
         body === undefined ? undefined : { "Content-Type": "application/json" },
       body: body === undefined ? undefined : JSON.stringify(body),
@@ -87,7 +88,9 @@ export const api = {
   change: (kind: string, id: string | number) =>
     request<T.Change>(`/changes/${kind}/${id}`),
   companies: (cursor?: number) =>
-    request<T.Page<T.CompanySummary>>(`/companies${query({ cursor })}`),
+    request<T.Page<T.CompanySummary>>(
+      `/companies${query({ cursor, limit: 100 })}`,
+    ),
   company: (id: string | number) => request<T.Company>(`/companies/${id}`),
   createCompany: (body: T.CompanyProfile) =>
     request<T.Company>("/companies", body),
@@ -102,6 +105,49 @@ export const api = {
   match: (id: string | number) => request<T.Match>(`/matches/${id}`),
   createMatch: (company_id: number, analysis_id: number) =>
     request<T.Match>("/matches", { company_id, analysis_id }),
+  opportunityMatches: (company_id: number, cursor?: number) =>
+    request<T.Page<T.MatchOpportunity>>(
+      `/matches${query({ company_id, cursor })}`,
+    ),
+  saved: (company_id: number, cursor?: number) =>
+    request<T.Page<T.SavedTender>>(`/saved${query({ company_id, cursor })}`),
+  saveTender: (company_id: number, tender_id: number) =>
+    request<{ saved: boolean; id: number }>(
+      `/saved/${tender_id}${query({ company_id })}`,
+      {},
+    ),
+  unsaveTender: (company_id: number, tender_id: number) =>
+    request<{ saved: boolean }>(
+      `/saved/${tender_id}${query({ company_id })}`,
+      {},
+      15000,
+      "DELETE",
+    ),
+  alerts: (company_id: number, unread_only = false, cursor?: number) =>
+    request<T.Page<T.Alert>>(
+      `/alerts${query({ company_id, unread_only: unread_only ? 1 : undefined, cursor })}`,
+    ),
+  readAlert: (company_id: number, alert_id: number) =>
+    request<T.Alert>(
+      `/alerts/${alert_id}/read${query({ company_id })}`,
+      {},
+      15000,
+      "PATCH",
+    ),
+  preferences: (company_id: number) =>
+    request<T.NotificationPreference>(
+      `/notification-preferences${query({ company_id })}`,
+    ),
+  updatePreferences: (
+    company_id: number,
+    body: T.NotificationPreferenceInput,
+  ) =>
+    request<T.NotificationPreference>(
+      `/notification-preferences${query({ company_id })}`,
+      body,
+      15000,
+      "PUT",
+    ),
   ask: (version: number, question: string) =>
     request<T.Answer>(
       `/document-versions/${version}/ask`,

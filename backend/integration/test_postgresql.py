@@ -49,9 +49,9 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
         with cls.engine.connect() as connection:
             if (
                 connection.scalar(text("SELECT version_num FROM alembic_version"))
-                != "0008"
+                != "0009"
             ):
-                raise RuntimeError("Apply Alembic head 0008 to the test database first")
+                raise RuntimeError("Apply Alembic head 0009 to the test database first")
 
     def setUp(self):
         self.connection = self.engine.connect()

@@ -19,6 +19,7 @@ from app.models import (
     Tender,
     TenderAnalysis,
     TenderDocument,
+    TenderMetadataChangeSet,
 )
 from app.rag.chunking import CHUNKER_VERSION
 from app.rag.config import ChunkConfig, EmbeddingConfig
@@ -31,6 +32,7 @@ from app.services.documents import process_documents
 from app.services.indexing import index_document
 from app.services.ingestion import ingest_tenders
 from app.services.matching import MATCHER_VERSION, match_tender
+from app.services.notifications import create_match_alert, create_update_alerts
 from app.services.pipeline import Outcome, Reason, Stage, StageSpec
 from app.sources import connector
 
@@ -63,6 +65,10 @@ def config_key(settings) -> str:
 
 def ingest_step(engine, row, run, settings) -> Outcome:
     source = connector(run.source_slug)
+    with Session(engine) as session:
+        latest_change_id = session.scalar(
+            select(func.coalesce(func.max(TenderMetadataChangeSet.id), 0))
+        )
     with httpx.Client(trust_env=False, follow_redirects=False) as client:
         listing = source.refresh(
             client,
@@ -72,8 +78,43 @@ def ingest_step(engine, row, run, settings) -> Outcome:
     limited = listing.limited
     ids: set[int] = set()
     result = ingest_tenders(engine, source.source, listing, affected_ids=ids)
+    update_alerts = 0
+    with Session(engine) as session:
+        changed_events = session.execute(
+            select(
+                TenderMetadataChangeSet.tender_id,
+                TenderMetadataChangeSet.to_revision_id,
+            )
+            .where(
+                TenderMetadataChangeSet.tender_id.in_(ids),
+                TenderMetadataChangeSet.id > latest_change_id,
+                TenderMetadataChangeSet.has_changes.is_(True),
+            )
+            .order_by(TenderMetadataChangeSet.id.desc())
+        ).all()
+    seen = set()
+    for tender_id, revision_id in changed_events:
+        if tender_id in seen:
+            continue
+        seen.add(tender_id)
+        created = create_update_alerts(engine, tender_id, revision_id)
+        update_alerts += len(created)
+        for alert_id in created:
+            try:
+                from app.worker.tasks import deliver_alert_task
+
+                deliver_alert_task.apply_async(
+                    args=[alert_id], task_id=f"alert-{alert_id}"
+                )
+            except Exception:
+                pass
     return Outcome(
-        metrics=asdict(result) | {"limited": limited, "scope_count": len(ids)},
+        metrics=asdict(result)
+        | {
+            "limited": limited,
+            "scope_count": len(ids),
+            "update_alerts": update_alerts,
+        },
         children=[
             StageSpec(
                 Stage.DOCUMENTS, config_key=config_key(settings), scope_ids=sorted(ids)
@@ -297,6 +338,17 @@ def matching_step(engine, row, run, settings) -> Outcome:
             continue
         metrics["matched"] += 1
         metrics["reused"] += int(result.reused)
+        alert_id, alert_created = create_match_alert(engine, result.match_id)
+        if alert_created:
+            metrics["alerts"] = metrics.get("alerts", 0) + 1
+            try:
+                from app.worker.tasks import deliver_alert_task
+
+                deliver_alert_task.apply_async(
+                    args=[alert_id], task_id=f"alert-{alert_id}"
+                )
+            except Exception:
+                metrics["delivery_deferred"] = metrics.get("delivery_deferred", 0) + 1
     if metrics.get("failed"):
         return Outcome("failed", metrics, Reason.INVALID)
     return Outcome(
@@ -349,11 +401,33 @@ def changes_step(engine, row, run, settings) -> Outcome:
     if previous is None:
         return Outcome("skipped", reason=Reason.NO_PREVIOUS)
     result = compare_document(engine, previous, row.entity_id)
+    alerts = []
+    if result.change_count:
+        with Session(engine) as session:
+            tender_id = session.scalar(
+                select(TenderDocument.tender_id)
+                .join(DocumentVersion)
+                .join(TenderAnalysis)
+                .where(TenderAnalysis.id == row.entity_id)
+            )
+        alerts = create_update_alerts(
+            engine, tender_id, result.change_set_id, kind="document"
+        )
+        for alert_id in alerts:
+            try:
+                from app.worker.tasks import deliver_alert_task
+
+                deliver_alert_task.apply_async(
+                    args=[alert_id], task_id=f"alert-{alert_id}"
+                )
+            except Exception:
+                pass
     return Outcome(
         metrics={
             "change_set_id": result.change_set_id,
             "change_count": result.change_count,
             "reused": result.reused,
+            "alerts": len(alerts),
         }
     )
 

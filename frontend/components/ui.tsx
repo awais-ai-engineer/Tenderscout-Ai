@@ -2,6 +2,7 @@ import Link from "next/link";
 import type { ReactNode } from "react";
 import type { Json, Run, Tender } from "@/lib/types";
 import { date, label, source } from "@/lib/format";
+import { SaveButton } from "@/components/save-button";
 
 export function Heading({
   eyebrow,
@@ -158,13 +159,18 @@ export function Facts({ value }: { value: Json }) {
 }
 export function TenderTable({
   tenders,
+  companyId,
+  savedIds = [],
 }: {
   tenders: (Tender & { freshly_fetched?: boolean })[];
+  companyId?: number;
+  savedIds?: number[];
 }) {
   if (!tenders.length)
     return (
       <Empty title="No tenders found">
-        Try another search or filter. Recorded opportunities will appear here when available.
+        Try another search or filter. Recorded opportunities will appear here
+        when available.
       </Empty>
     );
   return (
@@ -177,6 +183,7 @@ export function TenderTable({
             <th>Category</th>
             <th>Deadline (UTC)</th>
             <th>Analysis</th>
+            {companyId && <th>Shortlist</th>}
           </tr>
         </thead>
         <tbody>
@@ -194,10 +201,21 @@ export function TenderTable({
                 {source(tender.source)}
                 {tender.freshly_fetched !== undefined && (
                   <span className="subtext">
-                    {tender.freshly_fetched ? "Fresh result" : "Recorded result"}
+                    {tender.freshly_fetched
+                      ? "Fresh result"
+                      : "Recorded result"}
                   </span>
                 )}
               </td>
+              {companyId && (
+                <td>
+                  <SaveButton
+                    companyId={companyId}
+                    tenderId={tender.id}
+                    initial={savedIds.includes(tender.id)}
+                  />
+                </td>
+              )}
               <td>{tender.category || "Not provided"}</td>
               <td className="nowrap">{date(tender.deadline)}</td>
               <td>

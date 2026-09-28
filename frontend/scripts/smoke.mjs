@@ -55,18 +55,38 @@ const fixture = createServer((req, res) => {
       upcoming_deadlines: [],
       recent_changes: [],
       recent_runs: [],
+      saved_tenders_count: 0,
+      unread_alerts_count: 0,
+      matching_opportunities_count: 0,
     };
   else if (path === "/api/v1/discover")
     data = {
-      items: url.searchParams.get("q") ? [{ ...tender, freshly_fetched: true }] : [],
+      items: url.searchParams.get("q")
+        ? [{ ...tender, freshly_fetched: true }]
+        : [],
       next_cursor: null,
       requested_at: "2026-09-27T00:00:00Z",
       mode: url.searchParams.get("q") ? "live" : "recorded",
       sources: url.searchParams.get("q")
         ? [
-            { source: "contracts-finder", status: "success", fetched_at: "2026-09-27T00:00:00Z", error_code: null },
-            { source: "find-a-tender", status: "unavailable", fetched_at: null, error_code: "source_unavailable" },
-            { source: "ted", status: "success", fetched_at: "2026-09-27T00:00:00Z", error_code: null },
+            {
+              source: "contracts-finder",
+              status: "success",
+              fetched_at: "2026-09-27T00:00:00Z",
+              error_code: null,
+            },
+            {
+              source: "find-a-tender",
+              status: "unavailable",
+              fetched_at: null,
+              error_code: "source_unavailable",
+            },
+            {
+              source: "ted",
+              status: "success",
+              fetched_at: "2026-09-27T00:00:00Z",
+              error_code: null,
+            },
           ]
         : [],
       result_count: url.searchParams.get("q") ? 1 : 0,
@@ -82,13 +102,11 @@ const fixture = createServer((req, res) => {
   )
     data = empty;
   else {
-    res
-      .writeHead(404)
-      .end(
-        JSON.stringify({
-          error: { code: "not_found", message: "Resource does not exist" },
-        }),
-      );
+    res.writeHead(404).end(
+      JSON.stringify({
+        error: { code: "not_found", message: "Resource does not exist" },
+      }),
+    );
     return;
   }
   res.end(JSON.stringify(data));
@@ -145,10 +163,10 @@ try {
     ["/", "No upcoming deadlines"],
     ["/discover", "No tenders found"],
     ["/discover?q=cloud", "temporarily unavailable"],
-    ["/matches", "Match overview coming soon"],
-    ["/saved", "Saving is not available yet"],
-    ["/alerts", "Alerts are not available yet"],
-    ["/settings", "Data &amp; product preferences"],
+    ["/matches", "No company matches"],
+    ["/saved", "Add a company profile first"],
+    ["/alerts", "Add a company profile first"],
+    ["/settings", "Add a company profile first"],
     ["/companies", "No company profiles"],
     ["/companies/new", "Create company profile"],
     ["/pipeline", "No pipeline runs"],
@@ -170,13 +188,25 @@ try {
     );
   }
   const overviewHtml = await (await fetch(base)).text();
-  assert.ok(!overviewHtml.includes('href="/pipeline"'), "Pipeline is exposed in customer navigation");
+  assert.ok(
+    !overviewHtml.includes('href="/pipeline"'),
+    "Pipeline is exposed in customer navigation",
+  );
   const discoverHtml = await (await fetch(`${base}/discover?q=cloud`)).text();
-  assert.ok(discoverHtml.includes('name="q"'), "Discover search does not submit q");
+  assert.ok(
+    discoverHtml.includes('name="q"'),
+    "Discover search does not submit q",
+  );
   assert.ok(discoverHtml.includes("Fresh result"), "Freshness is not rendered");
-  assert.ok(discoverHtml.includes("Searched 3 sources"), "Three-source search summary is not rendered");
+  assert.ok(
+    discoverHtml.includes("Searched 3 sources"),
+    "Three-source search summary is not rendered",
+  );
   assert.ok(discoverHtml.includes("TED"), "TED source status is not rendered");
-  assert.ok(!discoverHtml.includes("Pipeline"), "Discover exposes operational wording");
+  assert.ok(
+    !discoverHtml.includes("Pipeline"),
+    "Discover exposes operational wording",
+  );
   const oldList = await (await fetch(`${base}/tenders`)).text();
   assert.match(oldList, /<meta[^>]+http-equiv="refresh"[^>]+\/discover/i);
   unavailable = true;

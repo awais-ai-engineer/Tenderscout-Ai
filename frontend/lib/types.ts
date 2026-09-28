@@ -22,7 +22,8 @@ export interface DiscoverSource {
   fetched_at: string | null;
   error_code: "source_unavailable" | null;
 }
-export interface DiscoverResponse extends Page<Tender & { freshly_fetched: boolean }> {
+export interface DiscoverResponse
+  extends Page<Tender & { freshly_fetched: boolean }> {
   requested_at: string;
   mode: "live" | "recorded";
   sources: DiscoverSource[];
@@ -101,7 +102,12 @@ export interface Analysis extends AnalysisSummary {
   } | null;
 }
 export type Json =
-  null | string | number | boolean | Json[] | { [key: string]: Json };
+  | null
+  | string
+  | number
+  | boolean
+  | Json[]
+  | { [key: string]: Json };
 export interface ChangeSummary {
   id: number;
   tender_id: number;
@@ -249,4 +255,49 @@ export interface Dashboard {
   upcoming_deadlines: Tender[];
   recent_changes: ChangeSummary[];
   recent_runs: Run[];
+  saved_tenders_count: number;
+  unread_alerts_count: number;
+  matching_opportunities_count: number;
+}
+export interface SavedTender {
+  id: number;
+  company_id: number;
+  tender: Tender;
+  saved_at: string;
+  updated_since_saved: boolean;
+}
+export interface Alert {
+  id: number;
+  company_id: number;
+  company_name: string;
+  tender_id: number;
+  tender_title: string;
+  type: "new_match" | "tender_updated" | "deadline_reminder";
+  title: string;
+  message: string;
+  created_at: string;
+  read_at: string | null;
+}
+export interface NotificationPreferenceInput {
+  notification_email: string | null;
+  email_enabled: boolean;
+  minimum_match_score: number;
+  new_match_alerts: boolean;
+  tender_change_alerts: boolean;
+  deadline_reminders: boolean;
+  delivery_mode: "instant" | "daily_digest";
+}
+export interface NotificationPreference extends NotificationPreferenceInput {
+  company_id: number;
+  created_at: string | null;
+  updated_at: string | null;
+}
+export interface MatchOpportunity extends MatchSummary {
+  tender_id: number;
+  tender_title: string;
+  organization: string | null;
+  deadline: string | null;
+  source: string;
+  matched_reasons: string[];
+  unknown_reasons: string[];
 }

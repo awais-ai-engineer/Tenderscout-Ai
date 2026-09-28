@@ -11,6 +11,12 @@ OpenAI structured output/embeddings, Next.js 16.3.5, React 19.3.0 and TypeScript
 There is no authentication or tenant isolation; this is a trusted-workspace project,
 not a public multi-user deployment.
 
+The customer workflow now continues from scheduled source monitoring through
+document analysis, deterministic company matching, durable in-app alerts, and
+optional SMTP delivery. Saved tenders, alert preferences, matches, and alerts are
+scoped to an explicitly selected company profile because authentication is not yet
+implemented.
+
 - [Run the API and dashboard](#product-api-and-dashboard-task-11)
 - [Local infrastructure and migrations](#development-setup)
 - [Architecture, CI and deployment considerations](#integration-and-deployment-task-12)
@@ -902,8 +908,8 @@ Changes select only the closest previous compatible completed analysis of the sa
 logical document, ordered by `(downloaded_at, version ID)`, then highest analysis ID
 as a deterministic same-version tie-break. Schema/provider/model/prompt must match.
 No previous comparable analysis means skipped. Existing metadata changesets are not
-duplicated, and document comparisons reuse Task 9 identities. No all-pairs history,
-automatic Q&A, notifications, bid decisions or new sources are introduced.
+duplicated, and document comparisons reuse Task 9 identities. No all-pairs history
+or automatic Q&A is introduced by this pipeline stage.
 
 **Status and delivery.** Runs transition queued → running → completed/partial/failed:
 
@@ -1179,9 +1185,9 @@ Each scheduled run uses the same bounded connector and ingestion path, preservin
 source identity, revisions, change detection, pipeline status, and sanitized
 failure categories. PostgreSQL records the last successful source refresh and the
 pipeline run history records completed, partial, or failed attempts. One source
-failure does not stop the other scheduled tasks. No email alerts or customer
-notification delivery exist yet; a later phase can use newly discovered and changed
-tenders as alert inputs.
+failure does not stop the other scheduled tasks. With automatic matching enabled,
+completed analyses can create company matches and durable alerts. Saved and matching
+tenders can generate update and deadline alerts; email delivery is optional.
 `/tenders/[id]` has Overview, Analysis, Documents, Changes, Ask Tender and Matches
 tabs. Large tab contents are fetched only when selected. Analysis facts expose
 expandable quotes; documents expose version state without paths; change links open
@@ -1257,6 +1263,36 @@ Task 12 still needs full deployed browser and infrastructure validation.
 The [Task 11 completion report](docs/task11-report.md) records the file inventory,
 validation results and remaining live checks.
 
+## Saved tenders and notifications
+
+Migration `0009` adds company-scoped saved tenders, notification preferences, and
+durable alerts. The API exposes `GET /api/v1/saved`, `POST/DELETE
+/api/v1/saved/{tender_id}`, `GET /api/v1/matches`, `GET /api/v1/alerts`,
+`PATCH /api/v1/alerts/{alert_id}/read`, and `GET/PUT
+/api/v1/notification-preferences`; each route requires an explicit `company_id`.
+The dashboard pages use these records directly and do not synthesize counts or
+opportunities.
+
+When `AUTO_MATCH_ENABLED=true`, completed background analyses are evaluated against
+the bounded set of company profiles. A qualifying match creates one deduplicated
+`new_match` alert. Material document-analysis changes can create `tender_updated`
+alerts for saved or matching companies. Celery Beat generates 7-day and 2-day
+deadline reminders for saved or matched tenders and sends daily digests at
+`DAILY_DIGEST_HOUR_UTC`. Database uniqueness protects saved-tender and alert event
+identity across repeated task execution.
+
+Email uses SMTP through a small sender interface. Configure `SMTP_HOST`,
+`SMTP_PORT`, optional `SMTP_USERNAME` and `SMTP_PASSWORD`, `SMTP_FROM_EMAIL`,
+`SMTP_STARTTLS`, and `PRODUCT_BASE_URL`. With no sender configuration, alerts remain
+available in the application with unconfigured delivery status. Instant delivery
+uses a bounded-retry Celery task; daily-digest mode groups pending alerts into one
+message. Automated tests inject a fake sender and never contact an email provider.
+
+This remains a trusted single workspace. Company selection provides honest data
+scoping, but it is not an authorization boundary. Matching still depends on a
+completed supported tender analysis and remains deterministic company-fit
+alignment, not a prediction of procurement success.
+
 ## Integration and deployment (Task 12)
 
 ```mermaid
@@ -1318,7 +1354,7 @@ python -m unittest discover -s backend/integration -v
 ```
 
 Without the opt-in, the five tests explicitly skip. With it, connection/schema
-failures fail the suite. The suite requires the current head `0008`, never drops tables or runs
+failures fail the suite. The suite requires the current head `0009`, never drops tables or runs
 downgrades, rolls back fixtures, and removes only its identified committed lock-test
 row. Use an otherwise empty test database and do not run this against real tender
 history. Existing SQLite unit tests remain independently runnable without services.

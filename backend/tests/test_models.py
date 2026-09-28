@@ -28,6 +28,9 @@ class ModelTests(unittest.TestCase):
                 "document_analysis_change_sets",
                 "pipeline_runs",
                 "pipeline_stage_runs",
+                "saved_tenders",
+                "notification_preferences",
+                "alerts",
             },
         )
         required = {
@@ -186,6 +189,40 @@ class ModelTests(unittest.TestCase):
                     "completed_at",
                 },
                 "tender_matches": {"score"},
+            }
+        )
+        required.update(
+            {
+                "saved_tenders": {"id", "company_id", "tender_id", "created_at"},
+                "notification_preferences": {
+                    "company_id",
+                    "email_enabled",
+                    "minimum_match_score",
+                    "new_match_alerts",
+                    "tender_change_alerts",
+                    "deadline_reminders",
+                    "delivery_mode",
+                    "created_at",
+                    "updated_at",
+                },
+                "alerts": {
+                    "id",
+                    "company_id",
+                    "tender_id",
+                    "type",
+                    "title",
+                    "message",
+                    "dedupe_key",
+                    "delivery_status",
+                    "created_at",
+                },
+            }
+        )
+        optional.update(
+            {
+                "saved_tenders": set(),
+                "notification_preferences": {"notification_email"},
+                "alerts": {"match_id", "read_at", "delivered_at"},
             }
         )
         required.update(
@@ -410,6 +447,8 @@ class ModelTests(unittest.TestCase):
                     "tender_analysis_id",
                     "matcher_version",
                 ),
+                "uq_saved_company_tender": ("company_id", "tender_id"),
+                "uq_alerts_dedupe_key": ("dedupe_key",),
                 "uq_tenders_source_external_id": ("source_id", "external_id"),
                 "uq_tenders_source_url": ("source_id", "source_url"),
                 "uq_documents_tender_url": ("tender_id", "source_url"),

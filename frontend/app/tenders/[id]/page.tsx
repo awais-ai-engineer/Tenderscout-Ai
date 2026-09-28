@@ -6,6 +6,7 @@ import { AnalysisView } from "@/components/analysis-view";
 import { AskForm } from "@/components/ask-form";
 import { DocumentCard } from "@/components/document-list";
 import { MatchForm } from "@/components/match-form";
+import { SaveButton } from "@/components/save-button";
 import {
   Badge,
   Empty,
@@ -44,6 +45,13 @@ export default async function TenderPage({
   } catch (error) {
     content = <ErrorState error={error} />;
   }
+  const companies = await api.companies();
+  const selectedCompany =
+    companies.items.find((item) => item.id === positive(search.company_id)) ||
+    companies.items[0];
+  const saved = selectedCompany
+    ? await api.saved(selectedCompany.id).catch(() => null)
+    : null;
   return (
     <>
       <Link className="back-link" href="/discover">
@@ -53,6 +61,18 @@ export default async function TenderPage({
         {tender.organization || "Authority not provided"} ·{" "}
         {tender.category || "Category not provided"}
       </Heading>
+      {selectedCompany && (
+        <div className="shell-actions">
+          <SaveButton
+            companyId={selectedCompany.id}
+            tenderId={tender.id}
+            initial={Boolean(
+              saved?.items.some((item) => item.tender.id === tender.id),
+            )}
+          />
+          <small>Tracked for {selectedCompany.name}</small>
+        </div>
+      )}
       <nav className="tabs" aria-label="Tender sections">
         {tabs.map((item) => (
           <Link

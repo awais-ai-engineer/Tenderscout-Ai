@@ -1,13 +1,45 @@
-import Link from "next/link";
-import { Heading, Panel } from "@/components/ui";
-
-export default function SettingsPage() {
-  return <>
-    <Heading eyebrow="Your workspace" title="Settings">A preview of the preferences planned for TenderScout.</Heading>
-    <div className="settings-grid">
-      <Panel title="Company & discovery preferences"><div className="panel-body"><p>Preference controls are not available yet. You can manage existing company profiles now.</p><Link className="text-link" href="/companies">View companies →</Link></div></Panel>
-      <Panel title="Notifications"><div className="panel-body"><p>Alert and notification settings are planned. No delivery preferences are active here.</p></div></Panel>
-      <Panel title="Data & product preferences"><div className="panel-body"><p>Data and product settings are planned. There are no editable controls on this page yet.</p></div></Panel>
-    </div>
-  </>;
+import { api } from "@/lib/api";
+import { Empty, Heading, Panel } from "@/components/ui";
+import { NotificationForm } from "@/components/notification-form";
+export const dynamic = "force-dynamic";
+export default async function SettingsPage({
+  searchParams,
+}: {
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
+}) {
+  const search = await searchParams;
+  const companies = await api.companies();
+  const company =
+    companies.items.find((c) => c.id === Number(search.company_id)) ||
+    companies.items[0];
+  const preferences = company ? await api.preferences(company.id) : null;
+  return (
+    <>
+      <Heading eyebrow="Your workspace" title="Settings">
+        Configure notifications for a company profile.
+      </Heading>
+      <form className="filters">
+        <div className="field">
+          <label htmlFor="company">Company</label>
+          <select id="company" name="company_id" defaultValue={company?.id}>
+            {companies.items.map((c) => (
+              <option key={c.id} value={c.id}>
+                {c.name}
+              </option>
+            ))}
+          </select>
+        </div>
+        <button disabled={!company}>Edit settings</button>
+      </form>
+      <Panel title="Notifications">
+        {preferences ? (
+          <NotificationForm initial={preferences} />
+        ) : (
+          <Empty title="Add a company profile first">
+            Notification preferences are company scoped.
+          </Empty>
+        )}
+      </Panel>
+    </>
+  );
 }

@@ -8,7 +8,7 @@ from unittest.mock import patch
 from change_fixtures import output
 from fastapi.testclient import TestClient
 from rag_fixtures import CHUNKING, EMBEDDING, RagDatabaseMixin
-from sqlalchemy import create_engine, event
+from sqlalchemy import create_engine, event, select
 from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import Session
 from sqlalchemy.pool import StaticPool
@@ -16,10 +16,18 @@ from sqlalchemy.pool import StaticPool
 from app.api.product_support import MAX_PRODUCT_REQUEST_BODY_BYTES
 from app.core.config import Settings
 from app.main import app
-from app.models import DocumentVersion, Tender, TenderAnalysis, TenderDocument
+from app.models import (
+    Alert,
+    DocumentVersion,
+    Tender,
+    TenderAnalysis,
+    TenderDocument,
+    TenderRevision,
+)
 from app.services import pipeline, product_actions, queries
 from app.services.change_detection import compare_document
 from app.services.indexing import index_document
+from app.services.notifications import create_match_alert, create_update_alerts
 from app.services.revisions import capture_revision, ensure_baseline
 
 ORIGINAL_CONNECT = socket.socket.connect
@@ -391,6 +399,104 @@ class ProductApiTests(RagDatabaseMixin, unittest.TestCase):
         self.assertEqual(result["tender_count"], 2)
         self.assertEqual(result["active_tenders_count"], 1)
         self.assertEqual(len(result["recent_changes"]), 1)
+
+    def test_saved_tenders_are_company_scoped_and_idempotent(self):
+        company_id = self.company()
+        path = f"/api/v1/saved/{self.tender_id}?company_id={company_id}"
+        first = self.client.post(path, json={})
+        second = self.client.post(path, json={})
+        self.assertEqual(first.status_code, 200, first.text)
+        self.assertEqual(first.json()["id"], second.json()["id"])
+        saved = self.get(f"/saved?company_id={company_id}")["items"]
+        self.assertEqual([item["tender"]["id"] for item in saved], [self.tender_id])
+        self.assertEqual(self.client.delete(path).status_code, 200)
+        self.assertEqual(self.get(f"/saved?company_id={company_id}")["items"], [])
+        self.assertEqual(
+            self.client.post(
+                f"/api/v1/saved/99999?company_id={company_id}", json={}
+            ).status_code,
+            404,
+        )
+
+    def test_preferences_validate_and_alerts_can_be_read(self):
+        company_id = self.company()
+        path = f"/api/v1/notification-preferences?company_id={company_id}"
+        invalid = self.client.put(
+            path,
+            json={"email_enabled": True, "notification_email": "invalid"},
+        )
+        self.assertEqual(invalid.status_code, 422)
+        body = {
+            "email_enabled": True,
+            "notification_email": "alerts@example.com",
+            "minimum_match_score": 75,
+            "new_match_alerts": True,
+            "tender_change_alerts": True,
+            "deadline_reminders": True,
+            "delivery_mode": "daily_digest",
+        }
+        self.assertEqual(self.client.put(path, json=body).status_code, 200)
+        with Session(self.engine) as session, session.begin():
+            alert = Alert(
+                company_id=company_id,
+                tender_id=self.tender_id,
+                type="tender_updated",
+                title="Tender updated",
+                message="A material change was recorded.",
+                dedupe_key="test-update",
+                delivery_status="pending",
+            )
+            session.add(alert)
+            session.flush()
+            alert_id = alert.id
+        self.assertEqual(
+            len(self.get(f"/alerts?company_id={company_id}&unread_only=true")["items"]),
+            1,
+        )
+        response = self.client.patch(
+            f"/api/v1/alerts/{alert_id}/read?company_id={company_id}", json={}
+        )
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertIsNotNone(response.json()["read_at"])
+        self.assertEqual(
+            self.get(f"/alerts?company_id={company_id}&unread_only=true")["items"],
+            [],
+        )
+
+    def test_match_threshold_and_update_alert_deduplication(self):
+        company_id = self.company()
+        match = self.client.post(
+            "/api/v1/matches",
+            json={"company_id": company_id, "analysis_id": self.analysis_id},
+        ).json()
+        path = f"/api/v1/notification-preferences?company_id={company_id}"
+        self.assertEqual(
+            self.client.put(path, json={"minimum_match_score": 100}).status_code,
+            200,
+        )
+        score = match["score"]
+        if score is not None and score < 100:
+            self.assertEqual(
+                create_match_alert(self.engine, match["match_id"]), (None, False)
+            )
+        self.client.put(path, json={"minimum_match_score": 0})
+        first_id, created = create_match_alert(self.engine, match["match_id"])
+        if match["eligibility_status"] != "ineligible" and score is not None:
+            self.assertTrue(created)
+            self.assertEqual(
+                create_match_alert(self.engine, match["match_id"]), (first_id, False)
+            )
+        with Session(self.engine) as session:
+            revision_id = session.scalar(
+                select(TenderRevision.id)
+                .where(TenderRevision.tender_id == self.tender_id)
+                .order_by(TenderRevision.id.desc())
+            )
+        update_ids = create_update_alerts(self.engine, self.tender_id, revision_id)
+        self.assertEqual(len(update_ids), 1)
+        self.assertEqual(
+            create_update_alerts(self.engine, self.tender_id, revision_id), []
+        )
 
     def test_database_errors_are_sanitized_and_request_bodies_bounded(self):
         with patch.object(
