@@ -24,6 +24,7 @@ def record(source, external_id, title, *, description=None, organization=None):
         "contracts-finder": "www.contractsfinder.service.gov.uk",
         "find-a-tender": "www.find-tender.service.gov.uk",
         "ted": "ted.europa.eu",
+        "world-bank": "projects.worldbank.org",
     }[source]
     return ScrapedTender(
         external_id=external_id,
@@ -56,6 +57,13 @@ class DiscoveryTests(unittest.TestCase):
         self.ted = record(
             "ted", "123456-2026", "Cloud infrastructure", organization="EU Agency"
         )
+        self.world_bank = record(
+            "world-bank",
+            "OP12345678",
+            "Software development services",
+            description="Cloud migration support",
+            organization="World Bank Example Agency",
+        )
         self.calls = []
 
     def fetch(self, slug, query):
@@ -64,6 +72,7 @@ class DiscoveryTests(unittest.TestCase):
             "contracts-finder": self.contracts,
             "find-a-tender": self.find,
             "ted": self.ted,
+            "world-bank": self.world_bank,
         }[slug]
         return ParsedListing([item, item]), NOW
 
@@ -85,21 +94,27 @@ class DiscoveryTests(unittest.TestCase):
 
     def test_all_sources_fresh_and_ranked(self):
         result = self.search(limit=1)
-        self.assertCountEqual(self.calls, ["contracts-finder", "find-a-tender", "ted"])
+        self.assertCountEqual(
+            self.calls,
+            ["contracts-finder", "find-a-tender", "ted", "world-bank"],
+        )
         self.assertEqual(result["mode"], "live")
         self.assertEqual(result["result_count"], 1)
         self.assertEqual(result["items"][0]["title"], "Cloud infrastructure")
         self.assertTrue(result["items"][0]["freshly_fetched"])
         self.assertEqual(
             [s["status"] for s in result["sources"]],
-            ["success", "success", "success"],
+            ["success", "success", "success", "success"],
         )
-        self.assertEqual([s["fetched_at"] for s in result["sources"]], [NOW, NOW, NOW])
+        self.assertEqual(
+            [s["fetched_at"] for s in result["sources"]],
+            [NOW, NOW, NOW, NOW],
+        )
         with Session(self.engine) as session:
-            self.assertEqual(session.scalar(select(func.count(Tender.id))), 3)
-        self.assertEqual(self.search()["result_count"], 3)
+            self.assertEqual(session.scalar(select(func.count(Tender.id))), 4)
+        self.assertEqual(self.search()["result_count"], 4)
         with Session(self.engine) as session:
-            self.assertEqual(session.scalar(select(func.count(Tender.id))), 3)
+            self.assertEqual(session.scalar(select(func.count(Tender.id))), 4)
 
     def test_source_selection_and_persisted_update(self):
         first = self.search(source="contracts-finder")
@@ -134,13 +149,18 @@ class DiscoveryTests(unittest.TestCase):
             result = discovery.search(self.engine, q="cloud")
         self.assertEqual(
             [s["status"] for s in result["sources"]],
-            ["success", "unavailable", "success"],
+            ["success", "unavailable", "success", "success"],
         )
         self.assertEqual(result["sources"][1]["error_code"], "source_unavailable")
         self.assertNotIn("private upstream detail", str(result))
         self.assertEqual(
             {row["source"]: row["freshly_fetched"] for row in result["items"]},
-            {"contracts-finder": True, "find-a-tender": False, "ted": True},
+            {
+                "contracts-finder": True,
+                "find-a-tender": False,
+                "ted": True,
+                "world-bank": True,
+            },
         )
 
     def test_both_failures_return_recorded_results(self):
@@ -157,7 +177,7 @@ class DiscoveryTests(unittest.TestCase):
         self.assertFalse(result["items"][0]["freshly_fetched"])
         self.assertEqual(
             [s["status"] for s in result["sources"]],
-            ["unavailable", "unavailable", "unavailable"],
+            ["unavailable", "unavailable", "unavailable", "unavailable"],
         )
 
     def test_two_failures_keep_third_source_useful(self):
@@ -172,7 +192,7 @@ class DiscoveryTests(unittest.TestCase):
         self.assertEqual(result["items"][0]["source"], "ted")
         self.assertEqual(
             [item["status"] for item in result["sources"]],
-            ["unavailable", "unavailable", "success"],
+            ["unavailable", "unavailable", "success", "unavailable"],
         )
 
     def test_empty_query_does_not_fetch(self):
@@ -184,7 +204,7 @@ class DiscoveryTests(unittest.TestCase):
         self.assertEqual(result["sources"], [])
 
     def test_source_fetches_overlap(self):
-        barrier = Barrier(3, timeout=2)
+        barrier = Barrier(4, timeout=2)
 
         def concurrent(slug, query):
             barrier.wait()
@@ -192,7 +212,7 @@ class DiscoveryTests(unittest.TestCase):
 
         with patch.object(discovery, "search_source", side_effect=concurrent):
             result = discovery.search(self.engine, q="cloud")
-        self.assertEqual(len(result["sources"]), 3)
+        self.assertEqual(len(result["sources"]), 4)
         self.assertTrue(all(item["status"] == "success" for item in result["sources"]))
 
     def test_api_contract_and_sanitized_errors(self):

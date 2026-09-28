@@ -1,5 +1,5 @@
 export type Page<T> = { items: T[]; next_cursor: number | null };
-export type Source = "contracts-finder" | "find-a-tender" | "ted";
+export type Source = "contracts-finder" | "find-a-tender" | "ted" | "world-bank";
 export interface Tender {
   id: number;
   source: string;

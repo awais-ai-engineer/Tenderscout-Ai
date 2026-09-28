@@ -15,7 +15,8 @@ from app.sources.connectors import (
 class SourceConnectorTests(unittest.TestCase):
     def test_registry_is_exact_and_selection_is_stable(self):
         self.assertEqual(
-            set(SOURCE_CONNECTORS), {"contracts-finder", "find-a-tender", "ted"}
+            set(SOURCE_CONNECTORS),
+            {"contracts-finder", "find-a-tender", "ted", "world-bank"},
         )
         self.assertEqual(connector("ted").display_name, "TED")
         with self.assertRaisesRegex(ValueError, "Unsupported source"):

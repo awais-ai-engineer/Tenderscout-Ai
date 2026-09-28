@@ -83,6 +83,7 @@ export default async function DiscoverPage({
             <option value="contracts-finder">Contracts Finder</option>
             <option value="find-a-tender">Find a Tender</option>
             <option value="ted">TED</option>
+            <option value="world-bank">World Bank</option>
           </select>
         </div>
         <div className="field">

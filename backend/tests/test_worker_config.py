@@ -63,6 +63,7 @@ class WorkerConfigTests(unittest.TestCase):
             {
                 "contracts-finder",
                 "ted",
+                "world-bank",
                 "deadline-reminders",
                 "daily-digests",
                 "instant-alert-recovery",
@@ -85,6 +86,7 @@ class WorkerConfigTests(unittest.TestCase):
                     find_a_tender_schedule_minutes=0,
                     contracts_finder_schedule_minutes=0,
                     ted_schedule_minutes=0,
+                    world_bank_schedule_minutes=0,
                 )
             )["beat_schedule"],
             {

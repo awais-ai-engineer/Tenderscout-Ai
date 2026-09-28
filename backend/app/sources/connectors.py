@@ -6,7 +6,7 @@ from dataclasses import dataclass
 import httpx
 
 from app.schemas.source import SourceCreate
-from app.scrapers import contracts_finder, find_tender, ted
+from app.scrapers import contracts_finder, find_tender, ted, world_bank
 from app.scrapers.records import ParsedListing, ScrapedTender
 
 Fetcher = Callable[[httpx.Client, int, float], ParsedListing]
@@ -91,6 +91,16 @@ def _ted_search(client: httpx.Client, query: str, limit: int, timeout: float):
     return ted.search(client, query=query, limit=limit, timeout=timeout)
 
 
+def _world_bank_refresh(client: httpx.Client, limit: int, timeout: float):
+    return _bounded(world_bank.fetch(client, limit=limit, timeout=timeout), limit)
+
+
+def _world_bank_search(client: httpx.Client, query: str, limit: int, timeout: float):
+    return _bounded(
+        world_bank.fetch(client, limit=limit, timeout=timeout, query=query), limit
+    )
+
+
 @dataclass(frozen=True)
 class SourceConnector:
     source: SourceCreate
@@ -133,6 +143,7 @@ SOURCE_CONNECTORS = registry(
     ),
     SourceConnector(find_tender.SOURCE, _find_search, _find_refresh),
     SourceConnector(ted.SOURCE, _ted_search, _ted_refresh),
+    SourceConnector(world_bank.SOURCE, _world_bank_search, _world_bank_refresh),
 )
 
 
