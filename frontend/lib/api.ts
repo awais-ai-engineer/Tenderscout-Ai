@@ -22,9 +22,14 @@ async function request<T>(
   timeout = 15000,
   method?: "POST" | "PUT" | "PATCH" | "DELETE",
 ): Promise<T> {
+  const serviceBase =
+    typeof window === "undefined" && process.env.BACKEND_URL
+      ? `${process.env.BACKEND_URL.replace(/\/$/, "")}/api/v1`
+      : undefined;
   const base = (
     typeof window === "undefined"
       ? process.env.API_INTERNAL_BASE_URL ||
+        serviceBase ||
         process.env.NEXT_PUBLIC_API_BASE_URL
       : process.env.NEXT_PUBLIC_API_BASE_URL
   )?.replace(/\/$/, "");
