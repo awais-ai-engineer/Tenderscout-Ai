@@ -9,7 +9,7 @@
           "type": "service",
           "service": "backend",
           "format": "url",
-          "env": "API_INTERNAL_BASE_URL"
+          "env": "BACKEND_URL"
         }
       ]
     },
